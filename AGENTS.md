@@ -5,8 +5,6 @@ This file is auto-discovered by AI coding agents. It provides project-level cont
 ## Project Overview
 
 - **Name**: pike-fmt
-ct|- **Description**: Standalone Pike source code formatter using tree-sitter-pike. Normalizes indentation, whitespace, and optionally operator spacing. Phase 3: indentation + whitespace. Phase 4 (experimental): operator spacing.
-- **Description**: Standalone Pike source code formatter using tree-sitter-pike. Normalizes indentation and whitespace without structural changes. Phase 1: indentation-only.
 - **Primary Language**: TypeScript 5.x, Node.js 22+
 
 ## Build & Run
@@ -140,7 +138,3 @@ Examples: `feature/add-embeddings`, `fix/token-overflow`
 ### Changelog
 
 Follow [Keep a Changelog](https://keepachangelog.com/). Update `CHANGELOG.md` under `[Unreleased]` for every user-facing change.
-
-## Template Version
-
-This project was generated from `ai-project-template` version **0.6.0**. See [`.template-version`](./.template-version) for the current release.
