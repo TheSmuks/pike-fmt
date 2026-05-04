@@ -239,19 +239,19 @@ describe("tabSize option", () => {
     // Brace position is preserved — `{` and `}` lines keep their tree-assigned indent.
     const input = `class Foo {\nint x;\n}`;
     const result = await formatSource(input, { tabSize: 4 });
-    expect(result).toBe(`class Foo {\n    int x;\n    }\n`);
+    expect(result).toBe(`class Foo {\n    int x;\n}\n`);
   });
 
   test("8-space indent", async () => {
     const input = `class Foo {\nint x;\n}`;
     const result = await formatSource(input, { tabSize: 8 });
-    expect(result).toBe(`class Foo {\n        int x;\n        }\n`);
+    expect(result).toBe(`class Foo {\n        int x;\n}\n`);
   });
 
   test("nested 4-space indent", async () => {
     const input = `class Foo {\nclass Bar {\nint x;\n}\n}`;
     const result = await formatSource(input, { tabSize: 4 });
-    expect(result).toBe(`class Foo {\n    class Bar {\n        int x;\n        }\n    }\n`);
+    expect(result).toBe(`class Foo {\n    class Bar {\n        int x;\n    }\n}\n`);
   });
 });
 
@@ -260,20 +260,20 @@ describe("useTabs option", () => {
     const input = `class Foo {\nint x;\n}`;
     const result = await formatSource(input, { useTabs: true });
     // tabSize=2: indent 0 → "", indent 2 → "\t"
-    expect(result).toBe(`class Foo {\n\tint x;\n\t}\n`);
+    expect(result).toBe(`class Foo {\n\tint x;\n}\n`);
   });
 
   test("tabs for nested indent", async () => {
     const input = `class Foo {\nclass Bar {\nint x;\n}\n}`;
     const result = await formatSource(input, { useTabs: true });
-    expect(result).toBe(`class Foo {\n\tclass Bar {\n\t\tint x;\n\t\t}\n\t}\n`);
+    expect(result).toBe(`class Foo {\n\tclass Bar {\n\t\tint x;\n\t}\n}\n`);
   });
 
   test("tabs at tabSize=4", async () => {
     const input = `class Foo {\nclass Bar {\nint x;\n}\n}`;
     const result = await formatSource(input, { useTabs: true, tabSize: 4 });
     // tabSize=4: indent 0 → "", indent 4 → "\t", indent 8 → "\t\t"
-    expect(result).toBe(`class Foo {\n\tclass Bar {\n\t\tint x;\n\t\t}\n\t}\n`);
+    expect(result).toBe(`class Foo {\n\tclass Bar {\n\t\tint x;\n\t}\n}\n`);
   });
 });
 
@@ -316,23 +316,23 @@ describe("edge cases", () => {
     // It cannot move braces between lines.
     const input = `class Foo {\nint x;\n}`;
     const result = await formatSource(input);
-    expect(result).toBe(`class Foo {\n  int x;\n  }\n`);
+    expect(result).toBe(`class Foo {\n  int x;\n}\n`);
   });
 
   test("already formatted brace-on-own-line is idempotent", async () => {
-    await assertIdempotent(`class Foo {\n  int x;\n  }\n`);
+    await assertIdempotent(`class Foo {\n  int x;\n}\n`);
   });
 
   test("tabs in input normalized to spaces", async () => {
     const input = `class Foo {\n\tint x;\n\t}\n`;
     const result = await formatSource(input);
-    expect(result).toBe(`class Foo {\n  int x;\n  }\n`);
+    expect(result).toBe(`class Foo {\n  int x;\n}\n`);
   });
 
   test("mixed tabs/spaces normalized to spaces", async () => {
     const input = `class Foo {\n \t  int x;\n \t  }\n`;
     const result = await formatSource(input);
-    expect(result).toBe(`class Foo {\n  int x;\n  }\n`);
+    expect(result).toBe(`class Foo {\n  int x;\n}\n`);
   });
 
   });

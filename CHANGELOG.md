@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `chore/merge-template` branch: merged `ai-project-template` infrastructure (workflows, skills, agents, hooks, rules, docs).
+- `.omp/rules/verify-pike-before-issue.md` — guardrail rule preventing misleading Pike syntax issues on upstream repos (verifies code is valid Pike via runtime before filing issues about parser behavior).
 
 
 ## [0.6.0] — 2026-05-02

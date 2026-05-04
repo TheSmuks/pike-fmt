@@ -11,4 +11,4 @@ void test()
 
   // Nested mixed
   mixed complex = ({ ([ "arr": ({ 1, 2 }) ]), ([ (< 1, 2 >) ]) });
-  }
+}

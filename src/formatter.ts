@@ -49,11 +49,12 @@ export const DEFAULT_OPTIONS: FormatOptions = {
 export const INDENT_NODES = new Set([
   "class_body",      // class Foo { int x; }
   "block",           // void foo() { return 1; }
-  "switch_body",     // switch (x) { case 1: ... }
-  "enum_body",       // enum Foo { A, B }
   "case_clause",     // case 1: ...
   "default_clause",  // default: ...
   // argument_list is NOT here — Pike call/decl parens stay on same line
+  "enum_decl",       // enum Foo { A, B } — members are direct children
+  // NOTE: "switch_body" does not exist in tree-sitter-pike grammar
+  // NOTE: "enum_body" does not exist in tree-sitter-pike grammar
 ]);
 
 // ---------------------------------------------------------------------------
@@ -179,7 +180,7 @@ export function format(
   }
 
   // Build maps: line -> indent (in spaces) and line -> base indent
-  const { indents, baseIndents } = computeLineIndents(tree.rootNode, options, 0);
+  const { indents, baseIndents } = computeLineIndents(tree.rootNode, options, 0, source);
 
   // Collect lines and apply indentation
   const originalLines = source.split("\n");
@@ -206,6 +207,14 @@ export function format(
     if (indent > 0 && content.trimEnd().endsWith("{")) {
       indent = baseIndents.get(i) ?? 0;
     }
+    // Pike convention: closing brace `}` goes back to outer indent level
+    if (indent > 0 && content.trimEnd() === "}") {
+      indent = baseIndents.get(i) ?? 0;
+    }
+    // Pike convention: preprocessor directives always at column 0
+    if (content.trimStart().startsWith("#")) {
+      indent = 0;
+    }
 
     const newIndent = options.useTabs
       ? "\t".repeat(Math.round(indent / options.tabSize))
@@ -213,7 +222,10 @@ export function format(
 
     // Strip trailing whitespace from content
     const trimmedContent = content.trimEnd();
-    formattedLines.push(newIndent + trimmedContent);
+    // Normalize internal whitespace: tabs → spaces, multiple spaces → single space
+    // Preserve string literals and comments
+    const normalizedContent = normalizeInternalWhitespace(trimmedContent);
+    formattedLines.push(newIndent + normalizedContent);
   }
 
   // Normalize blank lines: collapse runs of 3+ blank lines to 1
@@ -266,7 +278,7 @@ function normalizeOperatorSpacing(source: string, parser: Parser): string {
       const normalized = applyTokenSpacing(tokens);
       resultLines.push(normalized);
     } else {
-      // If parsing fails (e.g., partial line), keep as-is
+      // If parsing fails, keep the line as-is
       resultLines.push(line);
     }
   }
@@ -422,6 +434,88 @@ function applyTokenSpacing(tokens: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
+// Whitespace normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalize internal whitespace in a line of code.
+ * - Tabs become spaces
+ * - Multiple consecutive spaces become single space
+ * - Preserves content inside string literals and comments
+ */
+function normalizeInternalWhitespace(line: string): string {
+  // If the line contains string literals or comments, be more careful
+  if (/["'`]|\/\//.test(line)) {
+    // Simple approach: replace tabs with spaces first, then collapse spaces
+    // being careful not to touch content inside strings
+    return normalizeTabsAndCollapseSpaces(line);
+  }
+  // Simple case: just normalize whitespace
+  return line.replace(/\t/g, " ").replace(/  +/g, " ");
+}
+
+/**
+ * Normalize tabs to spaces and collapse multiple spaces, preserving string content.
+ */
+function normalizeTabsAndCollapseSpaces(line: string): string {
+  let result = "";
+  let inString = false;
+  let stringChar = "";
+  let i = 0;
+  
+  while (i < line.length) {
+    const ch = line[i];
+    
+    // Handle string literals
+    if ((ch === '"' || ch === "'" || ch === "`") && !inString) {
+      inString = true;
+      stringChar = ch;
+      result += ch;
+      i++;
+      continue;
+    }
+    
+    if (inString && ch === stringChar && (i === 0 || line[i-1] !== "\\")) {
+      inString = false;
+      result += ch;
+      i++;
+      continue;
+    }
+    
+    if (inString) {
+      // Inside string: preserve tabs, collapse other whitespace
+      if (ch === "\t") {
+        result += " ";
+      } else if (ch === " " && line[i+1] === " ") {
+        // Collapse multiple spaces inside string
+        result += ch;
+        while (i + 1 < line.length && line[i+1] === " ") i++;
+      } else {
+        result += ch;
+      }
+      i++;
+      continue;
+    }
+    
+    // Outside string: normalize whitespace
+    if (ch === "\t") {
+      result += " ";
+      // Collapse following spaces
+      while (i + 1 < line.length && line[i+1] === " ") i++;
+    } else if (ch === " ") {
+      // Collapse multiple spaces
+      result += ch;
+      while (i + 1 < line.length && line[i+1] === " ") i++;
+    } else {
+      result += ch;
+    }
+    i++;
+  }
+  
+  return result;
+}
+
+// ---------------------------------------------------------------------------
 // Blank line normalization
 // ---------------------------------------------------------------------------
 
@@ -472,6 +566,7 @@ function computeLineIndents(
   node: Node,
   opts: FormatOptions,
   baseIndent: number,
+  source: string,
 ): { indents: Map<number, number>; baseIndents: Map<number, number> } {
   const indents = new Map<number, number>();
   const baseIndents = new Map<number, number>();
@@ -491,8 +586,15 @@ function computeLineIndents(
     }
 
     const newIndent = baseIndent + opts.tabSize;
+    // For enum_decl: enum members are direct named children but the structural
+    // parts (enum keyword, identifier, braces) are not INDENT_NODEs.
+    // Only recurse into enum_member children to avoid over-indenting.
+    const isEnumDecl = node.type === "enum_decl";
     for (const child of node.namedChildren) {
-      const childResult = computeLineIndents(child, opts, newIndent);
+      // For enum_decl, skip non-INDENT_NODE children (structural parts like identifier, braces)
+      // For other INDENT_NODEs (class_body, block, case_clause), process all named children
+      if (isEnumDecl && !INDENT_NODES.has(child.type)) continue;
+      const childResult = computeLineIndents(child, opts, newIndent, source);
       for (const [line, indent] of childResult.indents) {
         indents.set(line, indent);
       }
@@ -502,13 +604,23 @@ function computeLineIndents(
     }
     for (let line = startLine; line <= endLine; line++) {
       if (!indents.has(line)) {
-        indents.set(line, newIndent);
+        // Structural lines stay at outer indent:
+        // - Lines starting with `{` or containing only `{`
+        // - Lines that are purely closing braces `}`
+        // - Keyword-only lines (enum, class, etc. without other content)
+        const sourceLine = source.split("\n")[line] ?? "";
+        const trimmed = sourceLine.trim();
+        const isStructural =
+          trimmed === "{" ||
+          trimmed === "}" ||
+          /^(class|enum|void|int|string|float|mapping|array|multiset|object|mixed|function|program)\b/.test(trimmed);
+        indents.set(line, isStructural ? baseIndent : newIndent);
         baseIndents.set(line, baseIndent);
       }
     }
   } else {
     for (const child of node.namedChildren) {
-      const childResult = computeLineIndents(child, opts, baseIndent);
+      const childResult = computeLineIndents(child, opts, baseIndent, source);
       for (const [line, indent] of childResult.indents) {
         indents.set(line, indent);
       }

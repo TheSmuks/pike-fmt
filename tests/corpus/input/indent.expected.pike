@@ -9,14 +9,14 @@ void deeply_nested()
               case 1: {
                 if (true) {
                   write("deep\n");
-                  }
                 }
               }
+            }
             break;
           } while (true);
           break;
-          }
         }
       }
     }
   }
+}

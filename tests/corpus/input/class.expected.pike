@@ -1,21 +1,21 @@
 class Outer
 {
-  int	foo;
+  int foo;
   string bar = "hello";
 
-  class	Inner
+  class Inner
   {
     int x;
 
     void create()
     {
       x = 42;
-      }
     }
+  }
 
   void method()
   {
     Inner i = Inner();
     foo = i.x;
-    }
   }
+}
