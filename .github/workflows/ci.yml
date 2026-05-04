@@ -45,16 +45,14 @@ jobs:
 
       - name: Generate tree-sitter-pike.wasm
         run: |
-          set -x
           git clone https://github.com/TheSmuks/tree-sitter-pike /tmp/tree-sitter-pike
           cd /tmp/tree-sitter-pike
           bun build grammar.ts --outfile grammar.js --target node --format esm
           npm install -g tree-sitter-cli@0.26.8
           tree-sitter generate --js-runtime native
           tree-sitter build --wasm -o tree-sitter-pike.wasm
-          ls -la tree-sitter-pike.wasm || { ls -la *.wasm src/*.wasm 2>/dev/null; exit 1; }
+          ls -la tree-sitter-pike.wasm || { echo "ERROR: wasm not found"; exit 1; }
           mv tree-sitter-pike.wasm "$GITHUB_WORKSPACE/"
-          ls -la "$GITHUB_WORKSPACE/tree-sitter-pike.wasm"
 
       - name: Type check
         run: bun run typecheck
