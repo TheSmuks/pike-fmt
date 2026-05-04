@@ -207,20 +207,6 @@ export function format(
     if (indent > 0 && content.trimEnd().endsWith("{")) {
       indent = baseIndents.get(i) ?? 0;
     }
-    // Pike convention: closing brace goes back to outer indent level.
-    // Handles:
-    // - `}` (block closing brace)
-    // - `};` (block close + statement terminator: lambda/catch/gauge)
-    // - `})` (block close + closing paren: lambda in function call)
-    // - `});` (all three)
-    const trimmedContent = content.trimEnd();
-    // Pattern: starts with }, then any combination of ) and ;, then optional whitespace
-    const isClosingBraceLike =
-      /^\}[);]*\s*;?\s*$/.test(trimmedContent) ||
-      /^\)\s*;?\s*$/.test(trimmedContent);
-    if (indent > 0 && isClosingBraceLike) {
-      indent = baseIndents.get(i) ?? 0;
-    }
     // Pike convention: preprocessor directives always at column 0
     if (content.trimStart().startsWith("#")) {
       indent = 0;
@@ -624,16 +610,16 @@ function computeLineIndents(
     }
     for (let line = startLine; line <= endLine; line++) {
       if (!indents.has(line)) {
-        // Structural lines stay at outer indent:
-        // - Lines starting with `{` or containing only `{`
-        // - Lines that are purely closing braces `}`, or `};` (brace + optional semicolon)
-        // - Keyword-only lines (enum, class, etc. without other content)
+        // The last line of an INDENT_NODE is always a closing delimiter
+        // at outer indent level.
+        const isLastLine = line === endLine;
         const sourceLine = source.split("\n")[line] ?? "";
         const trimmed = sourceLine.trim();
         const isStructural =
+          isLastLine ||
           trimmed === "{" ||
-          /^\}\s*;?\s*$/.test(trimmed) ||
           /^(class|enum|void|int|string|float|mapping|array|multiset|object|mixed|function|program)\b/.test(trimmed);
+
         indents.set(line, isStructural ? baseIndent : newIndent);
         baseIndents.set(line, baseIndent);
       }
