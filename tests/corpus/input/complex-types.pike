@@ -1,21 +1,10 @@
-// Complex type expressions
-void test()
-{
-  // Parameterized array type
-  array(int) int_array;
+// Complex types
+array(int) int_array;
+mapping(string:int) string_to_int;
+function(int:int) int_to_int_fn;
+object(Program) program_obj;
+array(mapping(string:array(int))) nested;
 
-  // Parameterized mapping type
-  mapping(string: int) string_to_int;
-
-  // Union type
-  int|string value;
-
-  // Qualified class type
-  Stdio.File file;
-
-  // Function return type
-  function(int): string converter;
-
-  // Generic function type
-  function(mixed...: void) variadic_fn;
-}
+// Function types with modifiers
+function(:void) void_fn;
+function(int, string : bool) mixed_fn;

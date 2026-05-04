@@ -12,7 +12,8 @@
  *   --check              Check if file needs formatting, exit non-zero if so
  *   --diff               Show unified diff of changes
  *   --list               List files that would be changed
- *   -w, --write          Write formatted output back to file (in-place)
+ *   --operator-spacing   Enable operator spacing normalization
+  -w, --write          Write formatted output back to file (in-place)
  *   --help               Show this help message
  *
  * Exit codes:
@@ -39,6 +40,7 @@ interface CliOpts {
   list: boolean;
   write: boolean;
   inputPaths: string[];
+  operatorSpacing: boolean;
 }
 
 function parseArgs(argv: string[]): CliOpts {
@@ -51,6 +53,7 @@ function parseArgs(argv: string[]): CliOpts {
     list: false,
     write: false,
     inputPaths: [],
+    operatorSpacing: false,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -84,7 +87,10 @@ function parseArgs(argv: string[]): CliOpts {
       case "--write":
         opts.write = true;
         break;
-      case "--help":
+      case "--operator-spacing":
+      opts.operatorSpacing = true;
+      break;
+    case "--help":
         printHelp();
         process.exit(0);
       default:
@@ -207,10 +213,29 @@ function formatSource(source: string, opts: CliOpts): string {
 // ---------------------------------------------------------------------------
 // Diff rendering
 // ---------------------------------------------------------------------------
+/**
+ * Compute LCS (Longest Common Subsequence) table for diff.
+ */
+function computeLCS(a: string[], b: string[]): number[][] {
+  const m = a.length;
+  const n = b.length;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      if (a[i - 1] === b[j - 1]) {
+        dp[i][j] = dp[i - 1][j - 1] + 1;
+      } else {
+        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+      }
+    }
+  }
+  return dp;
+}
 
 /**
  * Render a unified-style diff between original and formatted source.
- * Only shows lines that actually differ.
+ * Uses LCS-based diff for proper alignment of added/removed lines.
  */
 function simpleDiff(
   filePath: string,
@@ -219,49 +244,41 @@ function simpleDiff(
 ): string {
   const origLines = original.split("\n");
   const fmtLines = formatted.split("\n");
+
+  // Compute LCS table
+  const lcs = computeLCS(origLines, fmtLines);
+
+  // Backtrack to find the diff
+  const changes: { type: "keep" | "delete" | "insert"; line: string }[] = [];
+  let i = origLines.length;
+  let j = fmtLines.length;
+
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && origLines[i - 1] === fmtLines[j - 1]) {
+      changes.unshift({ type: "keep", line: origLines[i - 1] });
+      i--;
+      j--;
+    } else if (j > 0 && (i === 0 || lcs[i][j - 1] >= lcs[i - 1][j])) {
+      changes.unshift({ type: "insert", line: fmtLines[j - 1] });
+      j--;
+    } else if (i > 0) {
+      changes.unshift({ type: "delete", line: origLines[i - 1] });
+      i--;
+    }
+  }
+
+  // Build the diff output
   const lines: string[] = [];
-  const maxLen = Math.max(origLines.length, fmtLines.length);
-
-  // Find common prefix
-  let prefixEnd = 0;
-  while (prefixEnd < maxLen && origLines[prefixEnd] === fmtLines[prefixEnd]) {
-    prefixEnd++;
-  }
-
-  // Find common suffix (working backwards)
-  let suffixStart = maxLen;
-  while (suffixStart > prefixEnd) {
-    const oi = origLines.length - (maxLen - suffixStart) - 1;
-    const fi = fmtLines.length - (maxLen - suffixStart) - 1;
-    if (oi < 0 || fi < 0) break;
-    if (origLines[oi] !== fmtLines[fi]) break;
-    suffixStart--;
-  }
-
   lines.push(`--- ${filePath}`);
   lines.push(`+++ ${filePath}`);
 
-  for (let i = 0; i < maxLen; i++) {
-    const oLine = origLines[i];
-    const fLine = fmtLines[i];
-
-    if (i < prefixEnd || i >= suffixStart) {
-      if (oLine !== undefined && fLine !== undefined && oLine === fLine) {
-        lines.push(` ${oLine}`);
-      } else if (oLine !== undefined && fLine !== undefined) {
-        lines.push(`-${oLine}`);
-        lines.push(`+${fLine}`);
-      } else if (oLine !== undefined) {
-        lines.push(`-${oLine}`);
-      } else if (fLine !== undefined) {
-        lines.push(`+${fLine}`);
-      }
-    } else {
-      const changed = oLine !== fLine;
-      if (changed) {
-        lines.push(`-${oLine ?? ""}`);
-        lines.push(`+${fLine ?? ""}`);
-      }
+  for (const change of changes) {
+    if (change.type === "keep") {
+      lines.push(` ${change.line}`);
+    } else if (change.type === "delete") {
+      lines.push(`-${change.line}`);
+    } else if (change.type === "insert") {
+      lines.push(`+${change.line}`);
     }
   }
 

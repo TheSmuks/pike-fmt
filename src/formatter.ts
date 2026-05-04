@@ -73,7 +73,7 @@ const BINARY_OPS = new Set([
   // Shift
   "<<", ">>",
   // Comparison
-  "==", "!=", "<=", ">=",
+  "==", "!=", "<", ">", "<=", ">=",
   // Logical
   "&&", "||",
   // Assignment (compound)
@@ -112,7 +112,7 @@ type TokenClass = "identifier" | "literal" | "operator" | "punctuation" | "keywo
  */
 function classifyToken(t: string): TokenClass {
   // Keywords (Pike)
-  if (/^(int|float|string|array|mapping|object|void|mixed|function|program|class|enum|typedef|inherit|import|constant|if|else|for|while|do|foreach|switch|case|default|break|continue|return|null|true|false|this|local|auto)$/.test(t)) {
+  if (/^(int|float|string|array|mapping|object|void|mixed|function|program|class|enum|typedef|inherit|import|constant|if|else|for|while|do|foreach|switch|case|default|break|continue|return|null|true|false|this|local|auto|gauge|catch|inline|optional|private|protected|public|static|final|nomask|variant|synchronized)$/.test(t)) {
     return "keyword";
   }
   // Numeric/string literals
@@ -251,6 +251,11 @@ export function format(
 /**
  * Normalize operator spacing in formatted code.
  * Operates on a line-by-line basis using tree-sitter tokenization.
+ *
+ * NOTE: Multi-line constructs (strings with newlines, heredocs) may not get
+ * operator spacing applied because they cannot be parsed as standalone lines.
+ * This is a known limitation - the line is preserved unchanged rather than
+ * producing incorrect output.
  */
 function normalizeOperatorSpacing(source: string, parser: Parser): string {
   const lines = source.split("\n");
@@ -383,6 +388,7 @@ function applyTokenSpacing(tokens: string[]): string {
     // No space before ) ] }
     else if (t === ")" || t === "]" || t === "}") {
       needSpaceBefore = false;
+      needSpaceAfter = false;
     }
     // No space before . , ;
     else if (t === "." || t === "," || t === ";") {
@@ -405,6 +411,10 @@ function applyTokenSpacing(tokens: string[]): string {
       const prevIsId = /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(out.slice(-1));
       if (isId && prevIsId && lastChar !== " " && lastChar !== "\t" && !NO_SPACE_BEFORE.has(t)) {
         // Space between adjacent identifiers (e.g., "int x" not "intx")
+        out += " ";
+      }
+      // Space after ) before identifier (e.g., "int x" not "intx")
+      if (lastChar === ")" && isId && !NO_SPACE_BEFORE.has(t)) {
         out += " ";
       }
     }
