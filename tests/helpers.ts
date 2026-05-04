@@ -14,7 +14,13 @@ let initialized = false;
 const WASM_PATHS = [
   "/tank/appdata/pike-dev/projects/pike-fmt/tree-sitter-pike.wasm",
   "/tank/appdata/pike-dev/projects/tree-sitter-pike/tree-sitter-pike.wasm",
-];
+  // CI workspace paths
+  process.env.GITHUB_WORKSPACE
+    ? `${process.env.GITHUB_WORKSPACE}/tree-sitter-pike.wasm`
+    : null,
+  // Generic current directory
+  "./tree-sitter-pike.wasm",
+].filter(Boolean) as string[];
 
 async function getParser(): Promise<Parser> {
   if (initialized) return parser;
