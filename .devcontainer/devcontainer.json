@@ -1,17 +1,19 @@
 {
-  "name": "<!-- project name --> Dev Container",
+  "name": "pike-fmt Dev Container",
   "image": "mcr.microsoft.com/devcontainers/base:ubuntu",
   "features": {
     "ghcr.io/devcontainers/features/github-cli:1": {},
-    "ghcr.io/devcontainers/features/common-utils:2": {}
+    "ghcr.io/devcontainers/features/common-utils:2": {},
+    "ghcr.io/devcontainers/features/node:1": {}
   },
-  "postCreateCommand": "echo 'Replace this with your project setup command, e.g.: npm install'",
+  "postCreateCommand": "bun install",
   "customizations": {
     "vscode": {
       "extensions": [
         "github.vscode-github-actions",
         "editorconfig.editorconfig",
-        "github.copilot"
+        "github.copilot",
+        "ms-vscode.vscode-typescript-next"
       ],
       "settings": {
         "files.eol": "\n",

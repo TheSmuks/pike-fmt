@@ -53,10 +53,8 @@ Here's a filled-in `AGENTS.md` for a hypothetical TypeScript REST API:
 ```markdown
 # Project Context
 
-> **If this is a new project from the ai-project-template, read [SETUP_GUIDE.md](./SETUP_GUIDE.md) first.**
-> **If you're integrating this into an existing project, read [ADOPTING.md](./ADOPTING.md) instead.**
-
 This file is auto-discovered by AI coding agents. It provides project-level context.
+
 
 ## Project Overview
 
@@ -128,11 +126,6 @@ Types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`
 feature/invoice-webhooks
 fix/due-date-parsing
 chore/upgrade-zod
-```
-
-## Template Version
-
-Generated from `ai-project-template` version **0.2.0**.
 ```
 
 ### What to Avoid
@@ -490,11 +483,5 @@ For the `.omp/` directory structure and format specs:
 
 - [Oh My Pi documentation](https://github.com/can1357/oh-my-pi/tree/main/docs) — OMP harness documentation
 
-### Related Template Documentation
-
-- [AGENTS.md](./AGENTS.md) — Project context template
-- [architecture.md spec](https://architecture.md/) — Architecture-as-code specification
-- [SETUP_GUIDE.md](./SETUP_GUIDE.md) — New project setup guide
-- [ADOPTING.md](./ADOPTING.md) — Existing project adoption guide
 - [docs/ci.md](./docs/ci.md) — CI/CD configuration guide
 - [docs/omp-extensions-guide.md](./docs/omp-extensions-guide.md) — OMP extension types guide
