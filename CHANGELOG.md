@@ -8,10 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Fixed
+
+- `src/formatter.ts` — Fixed string escape handling: count consecutive backslashes before quote to properly detect escaped vs unescaped quotes (Bug 1).
+- `src/formatter.ts` — Fixed tab preservation inside strings: tabs are now preserved as-is, not converted to spaces (Bug 2).
+- `src/formatter.ts` — Added missing comparison operators (<, >) to BINARY_OPS set for proper operator spacing.
+- `src/formatter.ts` — Fixed space handling after closing parenthesis to properly space before following identifiers.
+- `src/formatter.ts` — Fixed classifyToken to include all Pike keywords (gauge, catch, inline, optional, private, protected, public, static, final, nomask, variant, synchronized).
+- `src/cli.ts` — Rewrote simpleDiff with LCS-based algorithm for proper diff alignment when files have different line counts.
+- `tests/corpus/input/indent.pike` — Fixed foreach syntax to match tree-sitter-pike grammar (array first, then value).
+- `tests/corpus/input/indent.expected.pike` — Updated to match grammar-corrected foreach syntax.
+
 ### Added
 
-- `chore/merge-template` branch: merged `ai-project-template` infrastructure (workflows, skills, agents, hooks, rules, docs).
-- `.omp/rules/verify-pike-before-issue.md` — guardrail rule preventing misleading Pike syntax issues on upstream repos (verifies code is valid Pike via runtime before filing issues about parser behavior).
+- `--operator-spacing` CLI flag to enable Phase 4 operator spacing normalization.
+- Regression tests for string escape handling and tab preservation inside strings.
+- `assertParses` tests added to all 13 corpus test groups.
+- Proper operator-spacing corpus with spaced and unspaced test cases.
+- `tests/corpus/input/edge.pike` populated with real edge cases (single-char lines, long lines, mixed quotes, tabs in strings, etc.).
+- `tests/corpus/input/lambda.pike` and `.expected.pike` for lambda expression coverage.
+- `tests/corpus/input/complex-types.pike` and `.expected.pike` for complex type coverage.
+- New inline tests for operator spacing behavior with `operatorSpacing: true` option.
+- Documented Phase 4 limitation: normalizeOperatorSpacing uses line-by-line parsing; multi-line constructs are preserved unchanged rather than producing incorrect output.
+
+### Changed
+
+- `src/diff.ts` — Updated comment to reflect Phase 1-3 scope (indentation-only).
+- `tests/formatter.test.ts` — Reorganized operator spacing tests into dedicated describe block.
 
 
 ## [0.6.0] — 2026-05-02

@@ -70,6 +70,11 @@ describe("function declarations", () => {
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
   });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
+  });
 });
 
 describe("blocks", () => {
@@ -81,6 +86,11 @@ describe("blocks", () => {
 
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
+  });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
   });
 });
 
@@ -94,6 +104,11 @@ describe("control flow", () => {
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
   });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
+  });
 });
 
 describe("enums", () => {
@@ -106,6 +121,11 @@ describe("enums", () => {
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
   });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
+  });
 });
 
 describe("Pike literals", () => {
@@ -117,6 +137,11 @@ describe("Pike literals", () => {
 
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
+  });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
   });
 
   test("array literal contents are not indented", async () => {
@@ -142,9 +167,46 @@ describe("operators", () => {
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
   });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
+  });
 });
 
-describe("comments", () => {
+
+
+describe("operator spacing", () => {
+  test("unspaced operators get spaces with operatorSpacing enabled", async () => {
+    const input = "int x=1+2;\n";
+    const result = await formatSource(input, { operatorSpacing: true });
+    expect(result).toBe("int x = 1 + 2;\n");
+  });
+
+  test("compound assignment preserves spacing", async () => {
+    const input = "int x=10;\nx+=5;\n";
+    const result = await formatSource(input, { operatorSpacing: true });
+    expect(result).toBe("int x = 10;\nx += 5;\n");
+  });
+
+  test("comparison operators get spaced", async () => {
+    const input = "bool x=a>0&&b<10;\n";
+    const result = await formatSource(input, { operatorSpacing: true });
+    expect(result).toBe("bool x = a > 0 && b < 10;\n");
+  });
+
+  test("ternary operator gets spaced", async () => {
+    const input = "int x=a>0?b:c;\n";
+    const result = await formatSource(input, { operatorSpacing: true });
+    expect(result).toBe("int x = a > 0 ? b : c;\n");
+  });
+
+  test("comma gets space after", async () => {
+    const input = "array(int) x=({1,2,3});\n";
+    const result = await formatSource(input, { operatorSpacing: true });
+    expect(result).toBe("array(int) x = ({1, 2, 3});\n");
+  });
+});describe("comments", () => {
   const c = loadCorpus("comment");
 
   test("formats correctly", async () => {
@@ -153,6 +215,11 @@ describe("comments", () => {
 
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
+  });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
   });
 });
 
@@ -166,6 +233,11 @@ describe("preprocessor", () => {
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
   });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
+  });
 });
 
 describe("indent edge cases", () => {
@@ -178,6 +250,11 @@ describe("indent edge cases", () => {
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
   });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
+  });
 });
 
 describe("inherit/import", () => {
@@ -189,6 +266,11 @@ describe("inherit/import", () => {
 
   test("is idempotent", async () => {
     await assertIdempotent(c.input);
+  });
+
+
+  test("output parses", async () => {
+    await assertParses(c.input);
   });
 });
 

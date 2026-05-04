@@ -4,7 +4,7 @@
  * Given original and formatted text, compute the smallest set of
  * replacements that transform one into the other.
  *
- * Phase 1: only handles indentation changes (leading whitespace per line).
+ * Phase 1-3: only handles indentation changes (leading whitespace per line) (leading whitespace per line).
  */
 export interface TextEdit {
   startLine: number;

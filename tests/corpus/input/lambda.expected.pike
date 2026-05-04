@@ -1,9 +1,9 @@
 // Lambda expressions
-void test()
-{
-  // Function type declaration (takes two ints, returns int)
-  function(int, int : int) callback;
+function f = lambda(int x) { return x + 1; };
 
-  // Lambda with block body
-  callback = lambda(int x, int y) { return x + y; };
-}
+// Arrow lambda
+array arr = ({});
+sort(arr, lambda(int a, int b) { return a > b; });
+
+// Typed lambda
+function(int, int : int) cmp = lambda(int a, int b) { return a - b; };
