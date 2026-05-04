@@ -6,11 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [Unreleased]
+zz|## [Unreleased]
+
+### Fixed
+
+- **Closing brace `}` indent regression in lambda/catch/gauge expressions.** The formatter incorrectly indented lines containing `};`, `})`, and `});` at the inner block level instead of the outer level. Fixed by extending the closing-brace detection pattern to handle these cases.
+- **Closing brace `}` indent regression in computeLineIndents.** The structural line detection also used a strict `}` match that missed `};`. Fixed to use the same pattern.
+- **Added corpus fixtures for `};` closing brace handling** (`closure.pike`, `nested-closure.pike`) and switch/case constructs (`switch-case.pike`).
 
 ### Changed
 
-- Replaced template boilerplate with pike-fmt project content: deleted template meta-files (SETUP_GUIDE.md, ADOPTING.md, UPGRADING.md, .template-version), rewrote README.md and ARCHITECTURE.md with pike-fmt content, cleaned up CHANGELOG.md to remove template version history, fixed devcontainer.json, CODEOWNERS, and PR template, removed duplicate description from AGENTS.md.
+wc|- Replaced template boilerplate with pike-fmt project content: deleted template meta-files (SETUP_GUIDE.md, ADOPTING.md, UPGRADING.md, .template-version), rewrote README.md and ARCHITECTURE.md with pike-fmt content, cleaned up CHANGELOG.md to remove template version history, fixed devcontainer.json, CODEOWNERS, and PR template, removed duplicate description from AGENTS.md.
 
 
 ## [0.1.0] — 2026-05-04

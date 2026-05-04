@@ -5,7 +5,7 @@ void test()
   mixed result = catch {
     // This code will fail
     error("oops");
-    };
+  };
 
   // Gauge expression
   float elapsed = gauge {
@@ -13,5 +13,5 @@ void test()
     for (int i = 0; i < 1000; i++) {
       // work
     }
-    };
+  };
 }
