@@ -207,8 +207,18 @@ export function format(
     if (indent > 0 && content.trimEnd().endsWith("{")) {
       indent = baseIndents.get(i) ?? 0;
     }
-    // Pike convention: closing brace `}` goes back to outer indent level
-    if (indent > 0 && content.trimEnd() === "}") {
+    // Pike convention: closing brace goes back to outer indent level.
+    // Handles:
+    // - `}` (block closing brace)
+    // - `};` (block close + statement terminator: lambda/catch/gauge)
+    // - `})` (block close + closing paren: lambda in function call)
+    // - `});` (all three)
+    const trimmedContent = content.trimEnd();
+    // Pattern: starts with }, then any combination of ) and ;, then optional whitespace
+    const isClosingBraceLike =
+      /^\}[);]*\s*;?\s*$/.test(trimmedContent) ||
+      /^\)\s*;?\s*$/.test(trimmedContent);
+    if (indent > 0 && isClosingBraceLike) {
       indent = baseIndents.get(i) ?? 0;
     }
     // Pike convention: preprocessor directives always at column 0
@@ -221,10 +231,10 @@ export function format(
       : " ".repeat(indent);
 
     // Strip trailing whitespace from content
-    const trimmedContent = content.trimEnd();
-    // Normalize internal whitespace: tabs → spaces, multiple spaces → single space
+    const trimmedContent2 = content.trimEnd();
+    // Normalize internal whitespace: tabs → spaces, collapse multiple spaces
     // Preserve string literals and comments
-    const normalizedContent = normalizeInternalWhitespace(trimmedContent);
+    const normalizedContent = normalizeInternalWhitespace(trimmedContent2);
     formattedLines.push(newIndent + normalizedContent);
   }
 
@@ -472,10 +482,10 @@ function normalizeTabsAndCollapseSpaces(line: string): string {
   let inString = false;
   let stringChar = "";
   let i = 0;
-  
+
   while (i < line.length) {
     const ch = line[i];
-    
+
     // Handle string literals
     if ((ch === '"' || ch === "'" || ch === "`") && !inString) {
       inString = true;
@@ -484,44 +494,44 @@ function normalizeTabsAndCollapseSpaces(line: string): string {
       i++;
       continue;
     }
-    
-    if (inString && ch === stringChar && (i === 0 || line[i-1] !== "\\")) {
+
+    if (inString && ch === stringChar && (i === 0 || line[i - 1] !== "\\")) {
       inString = false;
       result += ch;
       i++;
       continue;
     }
-    
+
     if (inString) {
       // Inside string: preserve tabs, collapse other whitespace
       if (ch === "\t") {
         result += " ";
-      } else if (ch === " " && line[i+1] === " ") {
+      } else if (ch === " " && line[i + 1] === " ") {
         // Collapse multiple spaces inside string
         result += ch;
-        while (i + 1 < line.length && line[i+1] === " ") i++;
+        while (i + 1 < line.length && line[i + 1] === " ") i++;
       } else {
         result += ch;
       }
       i++;
       continue;
     }
-    
+
     // Outside string: normalize whitespace
     if (ch === "\t") {
       result += " ";
       // Collapse following spaces
-      while (i + 1 < line.length && line[i+1] === " ") i++;
+      while (i + 1 < line.length && line[i + 1] === " ") i++;
     } else if (ch === " ") {
       // Collapse multiple spaces
       result += ch;
-      while (i + 1 < line.length && line[i+1] === " ") i++;
+      while (i + 1 < line.length && line[i + 1] === " ") i++;
     } else {
       result += ch;
     }
     i++;
   }
-  
+
   return result;
 }
 
@@ -616,13 +626,13 @@ function computeLineIndents(
       if (!indents.has(line)) {
         // Structural lines stay at outer indent:
         // - Lines starting with `{` or containing only `{`
-        // - Lines that are purely closing braces `}`
+        // - Lines that are purely closing braces `}`, or `};` (brace + optional semicolon)
         // - Keyword-only lines (enum, class, etc. without other content)
         const sourceLine = source.split("\n")[line] ?? "";
         const trimmed = sourceLine.trim();
         const isStructural =
           trimmed === "{" ||
-          trimmed === "}" ||
+          /^\}\s*;?\s*$/.test(trimmed) ||
           /^(class|enum|void|int|string|float|mapping|array|multiset|object|mixed|function|program)\b/.test(trimmed);
         indents.set(line, isStructural ? baseIndent : newIndent);
         baseIndents.set(line, baseIndent);
