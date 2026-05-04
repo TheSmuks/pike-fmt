@@ -6,4 +6,4 @@ void test()
   int d = a > 0 ? b : 0;
   string s = "hello" + " " + "world";
   int e = a | 0xFF & 0x0F;
-  }
+}

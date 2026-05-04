@@ -7,4 +7,4 @@ void test() {
   */
   int y = 2;
   /* single line block */
-  }
+}

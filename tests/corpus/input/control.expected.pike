@@ -5,17 +5,17 @@ void conditionals(int x)
     write("positive\n");
   }else{
     write("non-positive\n");
-    }
+  }
 
   for(int i = 0; i < 10; i++)
   {
     write("loop\n");
-    }
+  }
 
   while(true)
   {
     break;
-    }
+  }
 
   do{
     x--;
@@ -29,5 +29,5 @@ void conditionals(int x)
     write("two\n");
     default:
     write("other\n");
-    }
   }
+}

@@ -5,7 +5,7 @@
 
 void test()
 {
-  #ifdef DEBUG
+#ifdef DEBUG
   write("debug mode\n");
-  #endif
+#endif
   }
