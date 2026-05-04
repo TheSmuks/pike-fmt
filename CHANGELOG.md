@@ -10,9 +10,7 @@ zz|## [Unreleased]
 
 ### Fixed
 
-- **Closing brace `}` indent regression in lambda/catch/gauge expressions.** The formatter incorrectly indented lines containing `};`, `})`, and `});` at the inner block level instead of the outer level. Fixed by extending the closing-brace detection pattern to handle these cases.
-- **Closing brace `}` indent regression in computeLineIndents.** The structural line detection also used a strict `}` match that missed `};`. Fixed to use the same pattern.
-- **Added corpus fixtures for `};` closing brace handling** (`closure.pike`, `nested-closure.pike`) and switch/case constructs (`switch-case.pike`).
+- **Closing brace indentation now uses AST-driven approach.** Replaced regex-based closing-brace detection in both `format()` and `computeLineIndents()` with structural knowledge: the last line of any INDENT_NODE is at the outer indent level. This naturally handles `}`, `};`, `})`, `});`, and future compound closing patterns without needing regex updates.
 
 ### Changed
 
