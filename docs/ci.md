@@ -11,6 +11,7 @@ This project uses separate GitHub Actions workflow files, one concern per file. 
 | `changelog-check.yml` | Require changelog entries on pull requests |
 | `blob-size-policy.yml` | Reject large files in pull requests |
 | `branch-cleanup.yml` | Delete merged feature branches |
+   | `publish.yml`        | Publish to npm on GitHub release |
 
 ## 2. Workflow Structure
 
@@ -59,6 +60,12 @@ on:
 on:
   pull_request:
     types: [closed]
+
+```yaml
+# publish.yml — npm publish on release
+on:
+  release:
+    types: [published]
 ```
 
 Most workflows trigger on `push` and `pull_request` to `main`. The `changelog-check` and `blob-size-policy` workflows run only on pull requests, since their policies only apply to code under review. The `branch-cleanup` workflow triggers when a pull request is closed (merged or not), and the job only runs if the PR was actually merged.
