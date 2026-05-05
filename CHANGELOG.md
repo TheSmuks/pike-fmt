@@ -6,15 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-zz|## [Unreleased]
+zz|## [0.1.1] — 2026-05-05
 
 ### Fixed
 
 - **Closing brace indentation now uses AST-driven approach.** Replaced regex-based closing-brace detection in both `format()` and `computeLineIndents()` with structural knowledge: the last line of any INDENT_NODE is at the outer indent level. This naturally handles `}`, `};`, `})`, `});`, and future compound closing patterns without needing regex updates.
-
-### Changed
-
-wc|- Replaced template boilerplate with pike-fmt project content: deleted template meta-files (SETUP_GUIDE.md, ADOPTING.md, UPGRADING.md, .template-version), rewrote README.md and ARCHITECTURE.md with pike-fmt content, cleaned up CHANGELOG.md to remove template version history, fixed devcontainer.json, CODEOWNERS, and PR template, removed duplicate description from AGENTS.md.
 
 
 ## [0.1.0] — 2026-05-04
