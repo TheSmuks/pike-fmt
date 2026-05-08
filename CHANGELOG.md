@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Changed
+
+- **Build now bundles `tree-sitter-pike.wasm` into `dist/`** alongside `cli.js`, making the npm package fully self-contained without external wasm path requirements.
+
 
 ## [0.1.2] — 2026-05-05
 

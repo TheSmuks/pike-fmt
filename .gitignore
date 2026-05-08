@@ -1,1 +1,5 @@
+# tree-sitter-pike grammar (source) — not committed
 tree-sitter-pike.wasm
+
+# Untrack the bundled copy in dist (published with npm package)
+!dist/tree-sitter-pike.wasm
