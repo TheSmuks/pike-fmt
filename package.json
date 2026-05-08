@@ -7,7 +7,7 @@
     "pike-fmt": "dist/cli.js"
   },
   "scripts": {
-    "build": "bun build src/cli.ts --outdir dist --target node",
+    "build": "bun build src/cli.ts --outdir dist --target node && cp tree-sitter-pike.wasm dist/",
     "test": "bun test",
     "typecheck": "bun run tsc --noEmit"
   },
