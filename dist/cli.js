@@ -3710,6 +3710,9 @@ function parseArgs(argv) {
       case "--operator-spacing":
         opts.operatorSpacing = true;
         break;
+      case "--wasm-path":
+        opts.wasmPath = argv[++i2];
+        break;
       case "--help":
         printHelp();
         process.exit(0);
@@ -3745,12 +3748,14 @@ Options:
   --diff               Show unified diff of changes
   --list               List files that would be changed
   -w, --write          Write formatted output back to file (in-place)
+  --wasm-path <path>   Path to tree-sitter-pike.wasm (or set PIKE_FMT_WASM env var)
   --help               Show this help message
 
 Exit codes:
   0  Success — formatted output written to stdout, or file is formatted (--check)
   1  Error — parse failure, I/O error, or formatting needed (with --check)
   2  Invalid arguments
+Supported file extensions: .pike, .lpc, .pmod
 `);
 }
 function getVersion() {
@@ -3763,28 +3768,35 @@ function getVersion() {
 }
 var parser;
 var initialized = false;
-async function initParser() {
+async function initParser(wasmPathOverride) {
   if (initialized)
     return;
   await Parser.init();
   parser = new Parser;
-  const searchPaths = [
-    path.join(__dirname, "..", "tree-sitter-pike.wasm"),
-    path.join(__dirname, "tree-sitter-pike.wasm"),
-    path.join(__dirname, "..", "..", "tree-sitter-pike.wasm"),
-    path.join(process.cwd(), "tree-sitter-pike.wasm"),
-    path.join(__dirname, "..", "..", "..", "pike-language-server", "tree-sitter-pike.wasm")
-  ];
   let wasmPath;
-  for (const p of searchPaths) {
-    try {
-      fs2.accessSync(p, fs2.constants.R_OK);
-      wasmPath = p;
-      break;
-    } catch {}
+  if (wasmPathOverride) {
+    wasmPath = wasmPathOverride;
+  }
+  if (!wasmPath && process.env.PIKE_FMT_WASM) {
+    wasmPath = process.env.PIKE_FMT_WASM;
   }
   if (!wasmPath) {
-    console.error("error: tree-sitter-pike.wasm not found in any search path");
+    const searchPaths = [
+      path.join(__dirname, "..", "tree-sitter-pike.wasm"),
+      path.join(__dirname, "tree-sitter-pike.wasm"),
+      path.join(__dirname, "..", "..", "tree-sitter-pike.wasm"),
+      path.join(process.cwd(), "tree-sitter-pike.wasm")
+    ];
+    for (const p of searchPaths) {
+      try {
+        fs2.accessSync(p, fs2.constants.R_OK);
+        wasmPath = p;
+        break;
+      } catch {}
+    }
+  }
+  if (!wasmPath) {
+    console.error("error: tree-sitter-pike.wasm not found");
     process.exit(1);
   }
   try {
@@ -3866,7 +3878,7 @@ function simpleDiff(filePath, original, formatted) {
 `;
 }
 function isPikeFile(filePath) {
-  return filePath.endsWith(".pike") || filePath.endsWith(".lpc");
+  return filePath.endsWith(".pike") || filePath.endsWith(".lpc") || filePath.endsWith(".pmod");
 }
 function findPikeFiles(dirPath) {
   const results = [];
@@ -3914,7 +3926,7 @@ function processFile(filePath, opts) {
 }
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  await initParser();
+  await initParser(opts.wasmPath);
   if (opts.inputPaths.length === 0) {
     const source = await new Promise((resolve, reject) => {
       let data = "";
@@ -3944,7 +3956,7 @@ async function main() {
     }
   }
   if (allFiles.length === 0) {
-    console.error("error: no .pike files found");
+    console.error("error: no Pike files found (.pike, .lpc, .pmod)");
     process.exit(1);
   }
   allFiles.sort();

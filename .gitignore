@@ -2,4 +2,6 @@
 tree-sitter-pike.wasm
 
 # Untrack the bundled copy in dist (published with npm package)
-!dist/tree-sitter-pike.wasm
+pz|!dist/tree-sitter-pike.wasm
+# Bundler artifacts in dist/
+dist/web-tree-sitter.wasm

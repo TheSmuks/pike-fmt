@@ -6,11 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [Unreleased]
+## [0.1.4] — 2026-05-08
 
-### Changed
+### Added
 
-- **Build now bundles `tree-sitter-pike.wasm` into `dist/`** alongside `cli.js`, making the npm package fully self-contained without external wasm path requirements.
+- **`.pmod` file extension support.** `findPikeFiles()` and `isPikeFile()` now discover and format `.pmod` files alongside `.pike` and `.lpc` (#17).
+- **`--wasm-path` flag and `PIKE_FMT_WASM` env var.** Allows users to override the tree-sitter-pike.wasm search path from the CLI or environment (#16).
 
 
 ## [0.1.2] — 2026-05-05
@@ -18,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **`.github/workflows/publish.yml`** — automated npm publish on GitHub release via CI.
-zz|## [0.1.1] — 2026-05-05
+
+
+## [0.1.1] — 2026-05-05
 
 ### Fixed
 
