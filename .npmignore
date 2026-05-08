@@ -1,0 +1,4 @@
+# Exclude root-level wasm (only dist/tree-sitter-pike.wasm should be in the package)
+tree-sitter-pike.wasm
+# Allow dist/tree-sitter-pike.wasm to be included
+!dist/tree-sitter-pike.wasm
