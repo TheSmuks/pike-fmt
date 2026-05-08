@@ -13,7 +13,8 @@
  *   --diff               Show unified diff of changes
  *   --list               List files that would be changed
  *   --operator-spacing   Enable operator spacing normalization
-  -w, --write          Write formatted output back to file (in-place)
+ *   -w, --write          Write formatted output back to file (in-place)
+ *   --wasm-path <path>   Path to tree-sitter-pike.wasm (or set PIKE_FMT_WASM env var)
  *   --help               Show this help message
  *
  * Exit codes:
@@ -41,6 +42,7 @@ interface CliOpts {
   write: boolean;
   inputPaths: string[];
   operatorSpacing: boolean;
+  wasmPath?: string;
 }
 
 function parseArgs(argv: string[]): CliOpts {
@@ -88,9 +90,12 @@ function parseArgs(argv: string[]): CliOpts {
         opts.write = true;
         break;
       case "--operator-spacing":
-      opts.operatorSpacing = true;
-      break;
-    case "--help":
+        opts.operatorSpacing = true;
+        break;
+      case "--wasm-path":
+        opts.wasmPath = argv[++i];
+        break;
+      case "--help":
         printHelp();
         process.exit(0);
       default:
@@ -128,12 +133,14 @@ Options:
   --diff               Show unified diff of changes
   --list               List files that would be changed
   -w, --write          Write formatted output back to file (in-place)
+  --wasm-path <path>   Path to tree-sitter-pike.wasm (or set PIKE_FMT_WASM env var)
   --help               Show this help message
 
 Exit codes:
   0  Success — formatted output written to stdout, or file is formatted (--check)
   1  Error — parse failure, I/O error, or formatting needed (with --check)
   2  Invalid arguments
+Supported file extensions: .pike, .lpc, .pmod
 `);
 }
 
@@ -153,32 +160,45 @@ function getVersion(): string {
 let parser: Parser;
 let initialized = false;
 
-async function initParser(): Promise<void> {
+async function initParser(wasmPathOverride?: string): Promise<void> {
   if (initialized) return;
   await Parser.init();
   parser = new Parser();
 
-  const searchPaths = [
-    path.join(__dirname, "..", "tree-sitter-pike.wasm"),
-    path.join(__dirname, "tree-sitter-pike.wasm"),
-    path.join(__dirname, "..", "..", "tree-sitter-pike.wasm"),
-    path.join(process.cwd(), "tree-sitter-pike.wasm"),
-    path.join(__dirname, "..", "..", "..", "pike-language-server", "tree-sitter-pike.wasm"),
-  ];
-
   let wasmPath: string | undefined;
-  for (const p of searchPaths) {
-    try {
-      fs.accessSync(p, fs.constants.R_OK);
-      wasmPath = p;
-      break;
-    } catch {
-      // Continue searching
+
+  // 1. Explicit --wasm-path flag
+  if (wasmPathOverride) {
+    wasmPath = wasmPathOverride;
+  }
+
+  // 2. PIKE_FMT_WASM environment variable
+  if (!wasmPath && process.env.PIKE_FMT_WASM) {
+    wasmPath = process.env.PIKE_FMT_WASM;
+  }
+
+  // 3. Search paths
+  if (!wasmPath) {
+    const searchPaths = [
+      path.join(__dirname, "..", "tree-sitter-pike.wasm"),
+      path.join(__dirname, "tree-sitter-pike.wasm"),
+      path.join(__dirname, "..", "..", "tree-sitter-pike.wasm"),
+      path.join(process.cwd(), "tree-sitter-pike.wasm"),
+    ];
+
+    for (const p of searchPaths) {
+      try {
+        fs.accessSync(p, fs.constants.R_OK);
+        wasmPath = p;
+        break;
+      } catch {
+        // Continue searching
+      }
     }
   }
 
   if (!wasmPath) {
-    console.error("error: tree-sitter-pike.wasm not found in any search path");
+    console.error("error: tree-sitter-pike.wasm not found");
     process.exit(1);
   }
 
@@ -293,7 +313,7 @@ function simpleDiff(
 // ---------------------------------------------------------------------------
 
 function isPikeFile(filePath: string): boolean {
-  return filePath.endsWith(".pike") || filePath.endsWith(".lpc");
+  return filePath.endsWith(".pike") || filePath.endsWith(".lpc") || filePath.endsWith(".pmod");
 }
 
 function findPikeFiles(dirPath: string): string[] {
@@ -347,7 +367,7 @@ function processFile(filePath: string, opts: CliOpts): "changed" | "unchanged" |
 
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
-  await initParser();
+  await initParser(opts.wasmPath);
 
   // Stdin mode
   if (opts.inputPaths.length === 0) {
@@ -381,7 +401,7 @@ async function main(): Promise<void> {
   }
 
   if (allFiles.length === 0) {
-    console.error("error: no .pike files found");
+    console.error("error: no Pike files found (.pike, .lpc, .pmod)");
     process.exit(1);
   }
 
