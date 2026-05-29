@@ -260,7 +260,7 @@ async function Module2(moduleArg = {}) {
         throw new Error(response.status + " : " + response.url);
       }, "readAsync");
     }
-  } else {}
+  }
   var out = console.log.bind(console);
   var err = console.error.bind(console);
   var dynamicLibraries = [];
@@ -3259,6 +3259,25 @@ var DEFAULT_OPTIONS = {
   insertFinalNewline: true,
   operatorSpacing: false
 };
+var CONTROL_FLOW_WITH_BODY = new Set([
+  "if_statement",
+  "for_statement",
+  "while_statement",
+  "do_while_statement",
+  "foreach_statement"
+]);
+var BARE_BODY_TYPES = new Set([
+  "expression_statement",
+  "break_statement",
+  "continue_statement",
+  "return_statement",
+  "if_statement",
+  "for_statement",
+  "while_statement",
+  "do_while_statement",
+  "foreach_statement",
+  "switch_statement"
+]);
 var INDENT_NODES = new Set([
   "class_body",
   "block",
@@ -3604,6 +3623,20 @@ function collapseBlankLines(lines) {
   }
   return result;
 }
+function hasPrevUnnamedSibling(node, text) {
+  let prev = node.previousNamedSibling ? null : node.previousSibling;
+  let sib = node.previousSibling;
+  while (sib) {
+    if (!sib.isNamed && sib.text === text)
+      return true;
+    if (sib.isNamed) {
+      sib = sib.previousSibling;
+      continue;
+    }
+    break;
+  }
+  return false;
+}
 function computeLineIndents(node, opts, baseIndent, source) {
   const indents = new Map;
   const baseIndents = new Map;
@@ -3643,8 +3676,13 @@ function computeLineIndents(node, opts, baseIndent, source) {
       }
     }
   } else {
+    const isControlFlow = CONTROL_FLOW_WITH_BODY.has(node.type);
+    const bodyIndent = isControlFlow ? baseIndent + opts.tabSize : baseIndent;
     for (const child of node.namedChildren) {
-      const childResult = computeLineIndents(child, opts, baseIndent, source);
+      const isElseBranchControlFlow = isControlFlow && CONTROL_FLOW_WITH_BODY.has(child.type) && hasPrevUnnamedSibling(child, "else");
+      const isBareBody = isControlFlow && BARE_BODY_TYPES.has(child.type) && child.startPosition.row !== node.startPosition.row && !isElseBranchControlFlow;
+      const childIndent = isBareBody ? bodyIndent : baseIndent;
+      const childResult = computeLineIndents(child, opts, childIndent, source);
       for (const [line, indent] of childResult.indents) {
         indents.set(line, indent);
       }
@@ -3663,7 +3701,7 @@ function computeLineIndents(node, opts, baseIndent, source) {
 }
 
 // src/cli.ts
-var __dirname = "/tank/appdata/pike-dev/projects/pike-fmt/src";
+var __dirname = "/tank/projects/pike-fmt/src";
 function parseArgs(argv) {
   const opts = {
     tabSize: DEFAULT_OPTIONS.tabSize,
