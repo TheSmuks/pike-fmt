@@ -8,6 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Bare-body control flow indentation.** `if`/`else`, `for`, `while`, `do`/`while`, `foreach` without curly braces now correctly indent their body statement one level deeper than the keyword. Previously the body was at the same indent as the keyword.
+- **`else if` chain indentation.** `else if(...)` stays at the same level as the parent `else`, while its body indents correctly.
+- **Preprocessor fixture.** Corrected `preprocessor.expected.pike` which had a spurious 2-space indent on the closing brace.
+
+### Added
+
+- **Switch-case test coverage.** Added dedicated `switch case` describe block to test suite (was previously only covered by idempotency sweep).
+- **Bare-body control flow corpus.** Added `bare-body.pike` fixture covering if/else without braces.
 
 ## [0.1.4] — 2026-05-08
 

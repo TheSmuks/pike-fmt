@@ -8,4 +8,4 @@ void test()
 #ifdef DEBUG
   write("debug mode\n");
 #endif
-  }
+}

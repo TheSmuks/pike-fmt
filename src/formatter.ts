@@ -39,6 +39,40 @@ export const DEFAULT_OPTIONS: FormatOptions = {
 };
 
 // ---------------------------------------------------------------------------
+// Control flow node types whose bare (non-block) bodies need extra indent
+// ---------------------------------------------------------------------------
+
+/**
+ * Node types where the body is a direct named child (not wrapped in block).
+ * When the body is an expression_statement or similar non-block child on a
+ * different line from the keyword, it needs baseIndent + tabSize.
+ */
+const CONTROL_FLOW_WITH_BODY = new Set([
+  "if_statement",
+  "for_statement",
+  "while_statement",
+  "do_while_statement",
+  "foreach_statement",
+]);
+
+/**
+ * Named child types that constitute a "bare body" — not wrapped in a block.
+ * These need indent = parent baseIndent + tabSize when on a different line.
+ */
+const BARE_BODY_TYPES = new Set([
+  "expression_statement",
+  "break_statement",
+  "continue_statement",
+  "return_statement",
+  "if_statement",
+  "for_statement",
+  "while_statement",
+  "do_while_statement",
+  "foreach_statement",
+  "switch_statement",
+]);
+
+// ---------------------------------------------------------------------------
 // INDENT_NODES — canonical set of node types that introduce indentation
 // ---------------------------------------------------------------------------
 
@@ -566,6 +600,25 @@ function collapseBlankLines(lines: string[]): string[] {
 // ---------------------------------------------------------------------------
 
 /**
+ * Check if a node has a previous unnamed sibling with the given text.
+ * Used to detect "else if" chains — the inner if_statement is preceded by
+ * an "else" token, so it should not be treated as a bare body.
+ */
+function hasPrevUnnamedSibling(node: Node, text: string): boolean {
+  let prev = node.previousNamedSibling ? null : node.previousSibling;
+  // Walk backwards past any named siblings to find the unnamed token before
+  // this child. For "else if(y)", the inner if_statement's previous unnamed
+  // sibling is "else".
+  let sib = node.previousSibling;
+  while (sib) {
+    if (!sib.isNamed && sib.text === text) return true;
+    if (sib.isNamed) { sib = sib.previousSibling; continue; }
+    break;
+  }
+  return false;
+}
+
+/**
  * Compute indentation levels and base indentation for each line.
  */
 function computeLineIndents(
@@ -625,8 +678,32 @@ function computeLineIndents(
       }
     }
   } else {
+    // Control flow statements (if, for, while, do, foreach) whose body is a
+    // bare statement (not wrapped in block) need the body indented one level.
+    // Tree-sitter puts the body as a direct named child — e.g. if_statement
+    // has expression_statement as a child, not a block.
+    const isControlFlow = CONTROL_FLOW_WITH_BODY.has(node.type);
+    const bodyIndent = isControlFlow ? baseIndent + opts.tabSize : baseIndent;
+
     for (const child of node.namedChildren) {
-      const childResult = computeLineIndents(child, opts, baseIndent, source);
+      // Detect bare body children: they sit on a different line from the
+      // keyword and need the extra indent level. Block children are already
+      // handled as INDENT_NODES above — they don't need special treatment.
+      // Exception: in "else if" chains, the inner if_statement is the else
+      // branch, which stays at the same indent as the else keyword. We detect
+      // this by checking if the child is a control flow node preceded by "else".
+      // Simple statement bodies (expression, break, etc.) after "else" still
+      // need the extra indent — only nested control flow stays at baseIndent.
+      const isElseBranchControlFlow = isControlFlow
+        && CONTROL_FLOW_WITH_BODY.has(child.type)
+        && hasPrevUnnamedSibling(child, "else");
+      const isBareBody = isControlFlow
+        && BARE_BODY_TYPES.has(child.type)
+        && child.startPosition.row !== node.startPosition.row
+        && !isElseBranchControlFlow;
+
+      const childIndent = isBareBody ? bodyIndent : baseIndent;
+      const childResult = computeLineIndents(child, opts, childIndent, source);
       for (const [line, indent] of childResult.indents) {
         indents.set(line, indent);
       }

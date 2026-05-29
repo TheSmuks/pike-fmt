@@ -240,6 +240,38 @@ describe("preprocessor", () => {
   });
 });
 
+describe("switch case", () => {
+  const c = loadCorpus("switch-case");
+
+  test("formats correctly", async () => {
+    await assertFormat(c.input, c.expected);
+  });
+
+  test("is idempotent", async () => {
+    await assertIdempotent(c.input);
+  });
+
+  test("output parses", async () => {
+    await assertParses(c.input);
+  });
+});
+
+describe("bare-body control flow", () => {
+  const c = loadCorpus("bare-body");
+
+  test("formats correctly", async () => {
+    await assertFormat(c.input, c.expected);
+  });
+
+  test("is idempotent", async () => {
+    await assertIdempotent(c.input);
+  });
+
+  test("output parses", async () => {
+    await assertParses(c.input);
+  });
+});
+
 describe("indent edge cases", () => {
   const c = loadCorpus("indent");
 
