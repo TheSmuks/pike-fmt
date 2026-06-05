@@ -3,15 +3,15 @@
 void classify(int x) {
   switch(x) {
     case 1:
-    write("one\n");
-    break;
+      write("one\n");
+      break;
     case 2:
     case 3:
-    write("two or three\n");
-    break;
+      write("two or three\n");
+      break;
     default:
-    write("other\n");
-    break;
+      write("other\n");
+      break;
   }
 }
 
@@ -19,18 +19,18 @@ void classify(int x) {
 void nested_switch(int x, int y) {
   switch(x) {
     case 1:
-    switch(y) {
-      case 1:
-      write("1-1\n");
+      switch(y) {
+        case 1:
+          write("1-1\n");
+          break;
+        default:
+          write("1-other\n");
+          break;
+      }
       break;
-      default:
-      write("1-other\n");
-      break;
-    }
-    break;
     default:
-    write("other\n");
-    break;
+      write("other\n");
+      break;
   }
 }
 
@@ -43,7 +43,7 @@ void case_with_block(int x) {
       break;
     }
     default:
-    write("default\n");
-    break;
+      write("default\n");
+      break;
   }
 }

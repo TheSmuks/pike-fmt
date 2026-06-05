@@ -254,6 +254,26 @@ describe("switch case", () => {
   test("output parses", async () => {
     await assertParses(c.input);
   });
+
+  test("indents nested case bodies after line moves", async () => {
+    const input = `int main() {\nswitch (x) {\ncase 1:\nif (a) {\ny();\n}\nbreak;\ndefault:\nz();\n}\n}\n`;
+    const result = await formatSource(input);
+    expect(result).toBe(`int main() {\n  switch (x) {\n    case 1:\n      if (a) {\n        y();\n      }\n      break;\n    default:\n      z();\n  }\n}\n`);
+  });
+});
+
+describe("split control-flow lines", () => {
+  test("indents split if conditions as continuations", async () => {
+    const input = `int main() {\nif (a &&\nb) {\nx();\n}\n}\n`;
+    const result = await formatSource(input);
+    expect(result).toBe(`int main() {\n  if (a &&\n      b) {\n    x();\n  }\n}\n`);
+  });
+
+  test("normalizes else after closing block onto the same line", async () => {
+    const input = `int main() {\nif (a) {\nx();\n}\nelse {\ny();\n}\n}\n`;
+    const result = await formatSource(input);
+    expect(result).toBe(`int main() {\n  if (a) {\n    x();\n  } else {\n    y();\n  }\n}\n`);
+  });
 });
 
 describe("bare-body control flow", () => {

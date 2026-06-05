@@ -24,10 +24,10 @@ void conditionals(int x)
   switch(x)
   {
     case 1:
-    write("one\n");
+      write("one\n");
     case 2:
-    write("two\n");
+      write("two\n");
     default:
-    write("other\n");
+      write("other\n");
   }
 }
