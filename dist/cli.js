@@ -3391,7 +3391,11 @@ function format(source, opts = {}, parser) {
     const originalIndent = originalLine.match(/^\s*/)?.[0] ?? "";
     const content = originalLine.slice(originalIndent.length);
     let indent = indents.get(i2) ?? 0;
-    if (indent > 0 && content.trimEnd().endsWith("{")) {
+    const isContinuation = isContinuationLine(originalLines, i2);
+    if (isContinuation) {
+      indent = continuationIndent(originalLines, indents, options, i2);
+    }
+    if (!isContinuation && indent > 0 && content.trimEnd().endsWith("{")) {
       indent = baseIndents.get(i2) ?? 0;
     }
     if (content.trimStart().startsWith("#")) {
@@ -3402,7 +3406,7 @@ function format(source, opts = {}, parser) {
     const normalizedContent = normalizeInternalWhitespace(trimmedContent2);
     formattedLines.push(newIndent + normalizedContent);
   }
-  const resultLines = collapseBlankLines(formattedLines);
+  const resultLines = joinElseLines(collapseBlankLines(formattedLines));
   let result = resultLines.join(`
 `);
   if (options.insertFinalNewline && !result.endsWith(`
@@ -3623,8 +3627,67 @@ function collapseBlankLines(lines) {
   }
   return result;
 }
+function joinElseLines(lines) {
+  const result = [];
+  let line = 0;
+  while (line < lines.length) {
+    const current = lines[line] ?? "";
+    const next = lines[line + 1] ?? "";
+    if (current.trim() === "}" && /^\s*else\b/.test(next)) {
+      result.push(`${current} ${next.trimStart()}`);
+      line += 2;
+      continue;
+    }
+    result.push(current);
+    line++;
+  }
+  return result;
+}
+function isContinuationLine(lines, line) {
+  if (line === 0)
+    return false;
+  const current = (lines[line] ?? "").trimStart();
+  if (current === "" || /^[}\])]/.test(current))
+    return false;
+  let balance = 0;
+  for (let i2 = line - 1;i2 >= 0; i2--) {
+    const text = stripStringsAndComments(lines[i2] ?? "");
+    if (i2 === line - 1 && text.trimEnd().endsWith("{"))
+      return false;
+    balance += countChars(text, "(") + countChars(text, "[");
+    balance -= countChars(text, ")") + countChars(text, "]");
+    if (balance > 0)
+      return true;
+    if (balance < 0)
+      return false;
+    if (text.trim() === "")
+      return false;
+  }
+  return false;
+}
+function continuationIndent(lines, indents, opts, line) {
+  for (let i2 = line - 1;i2 >= 0; i2--) {
+    const text = stripStringsAndComments(lines[i2] ?? "");
+    if (countChars(text, "(") + countChars(text, "[") > countChars(text, ")") + countChars(text, "]")) {
+      return (indents.get(i2) ?? 0) + opts.tabSize * 2;
+    }
+  }
+  return indents.get(line) ?? 0;
+}
+function countChars(text, char) {
+  let count = 0;
+  for (const c of text) {
+    if (c === char)
+      count++;
+  }
+  return count;
+}
+function stripStringsAndComments(line) {
+  const commentStart = line.indexOf("//");
+  const code = commentStart >= 0 ? line.slice(0, commentStart) : line;
+  return code.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g, "");
+}
 function hasPrevUnnamedSibling(node, text) {
-  let prev = node.previousNamedSibling ? null : node.previousSibling;
   let sib = node.previousSibling;
   while (sib) {
     if (!sib.isNamed && sib.text === text)
@@ -3637,12 +3700,77 @@ function hasPrevUnnamedSibling(node, text) {
   }
   return false;
 }
+function parentType(node) {
+  const parent = node.parent;
+  return parent?.type ?? null;
+}
+function isSwitchBodyBlock(node) {
+  return node.type === "block" && parentType(node) === "switch_statement";
+}
+function mergeIndentMaps(target, source) {
+  for (const [line, indent] of source.indents) {
+    target.indents.set(line, indent);
+  }
+  for (const [line, base] of source.baseIndents) {
+    target.baseIndents.set(line, base);
+  }
+}
+function computeSwitchBodyIndents(node, opts, baseIndent, source) {
+  const result = { indents: new Map, baseIndents: new Map };
+  const labelIndent = baseIndent + opts.tabSize;
+  const bodyIndent = labelIndent + opts.tabSize;
+  let afterLabel = false;
+  for (const child of node.namedChildren) {
+    const isLabel = child.type === "case_clause" || child.type === "default_clause";
+    if (isLabel) {
+      mergeIndentMaps(result, computeCaseLabelIndents(child, opts, labelIndent, source));
+      afterLabel = true;
+      continue;
+    }
+    const previous = child.previousNamedSibling;
+    const continuesLabel = child.type === "block" && previous !== null && (previous.type === "case_clause" || previous.type === "default_clause") && previous.startPosition.row === child.startPosition.row;
+    const childIndent = continuesLabel ? labelIndent : afterLabel ? bodyIndent : labelIndent;
+    mergeIndentMaps(result, computeLineIndents(child, opts, childIndent, source));
+    if (continuesLabel) {
+      result.indents.set(child.startPosition.row, labelIndent);
+      result.baseIndents.set(child.startPosition.row, labelIndent);
+    }
+    afterLabel = true;
+  }
+  const lines = source.split(`
+`);
+  for (let line = node.startPosition.row;line <= node.endPosition.row; line++) {
+    if (result.indents.has(line))
+      continue;
+    const trimmed = lines[line]?.trim() ?? "";
+    const structural = line === node.startPosition.row || line === node.endPosition.row || trimmed === "{" || trimmed === "}";
+    result.indents.set(line, structural ? baseIndent : bodyIndent);
+    result.baseIndents.set(line, baseIndent);
+  }
+  return result;
+}
+function computeCaseLabelIndents(node, opts, labelIndent, source) {
+  const result = { indents: new Map, baseIndents: new Map };
+  result.indents.set(node.startPosition.row, labelIndent);
+  result.baseIndents.set(node.startPosition.row, labelIndent);
+  for (const child of node.namedChildren) {
+    if (child.type !== "block")
+      continue;
+    mergeIndentMaps(result, computeLineIndents(child, opts, labelIndent, source));
+    result.indents.set(node.startPosition.row, labelIndent);
+    result.baseIndents.set(node.startPosition.row, labelIndent);
+  }
+  return result;
+}
 function computeLineIndents(node, opts, baseIndent, source) {
   const indents = new Map;
   const baseIndents = new Map;
   const startLine = node.startPosition.row;
   const endLine = node.endPosition.row;
   if (INDENT_NODES.has(node.type)) {
+    if (isSwitchBodyBlock(node)) {
+      return computeSwitchBodyIndents(node, opts, baseIndent, source);
+    }
     const spansMultipleLines = node.startPosition.row !== node.endPosition.row;
     if (!spansMultipleLines) {
       for (let line = startLine;line <= endLine; line++) {

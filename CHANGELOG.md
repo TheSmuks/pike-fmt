@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Nested switch indentation.** `case` and `default` bodies now indent one level deeper than their labels, including nested switches and case blocks moved or pasted without indentation.
+- **Split control-flow continuation indentation.** Multi-line `if` conditions now keep continuation lines indented instead of resetting `b) {` to the header indent.
+- **Same-line else normalization.** A block-closing `}` followed by `else` on the next line is normalized to `} else {`.
+
 ## [0.1.6] — 2026-05-29
 
 ### Fixed

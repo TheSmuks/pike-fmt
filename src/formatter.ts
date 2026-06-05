@@ -236,9 +236,15 @@ export function format(
     const content = originalLine.slice(originalIndent.length);
 
     let indent = indents.get(i) ?? 0;
+    const isContinuation = isContinuationLine(originalLines, i);
 
-    // Pike convention: opening brace `{` stays on same line as declaration keyword.
-    if (indent > 0 && content.trimEnd().endsWith("{")) {
+    if (isContinuation) {
+      indent = continuationIndent(originalLines, indents, options, i);
+    }
+
+    // Pike convention: opening brace `{` stays on same line as the statement
+    // header. Continuation lines such as `b) {` keep continuation indent.
+    if (!isContinuation && indent > 0 && content.trimEnd().endsWith("{")) {
       indent = baseIndents.get(i) ?? 0;
     }
     // Pike convention: preprocessor directives always at column 0
@@ -258,8 +264,8 @@ export function format(
     formattedLines.push(newIndent + normalizedContent);
   }
 
-  // Normalize blank lines: collapse runs of 3+ blank lines to 1
-  const resultLines = collapseBlankLines(formattedLines);
+  // Normalize blank lines and same-line else placement after indentation.
+  const resultLines = joinElseLines(collapseBlankLines(formattedLines));
 
   let result = resultLines.join("\n");
 
@@ -595,6 +601,75 @@ function collapseBlankLines(lines: string[]): string[] {
   return result;
 }
 
+/** Join `else` back to a preceding closing block for consistent Pike style. */
+function joinElseLines(lines: string[]): string[] {
+  const result: string[] = [];
+  let line = 0;
+
+  while (line < lines.length) {
+    const current = lines[line] ?? "";
+    const next = lines[line + 1] ?? "";
+    if (current.trim() === "}" && /^\s*else\b/.test(next)) {
+      result.push(`${current} ${next.trimStart()}`);
+      line += 2;
+      continue;
+    }
+    result.push(current);
+    line++;
+  }
+
+  return result;
+}
+
+/** Detect a line that continues an unmatched parenthesized/bracketed header. */
+function isContinuationLine(lines: string[], line: number): boolean {
+  if (line === 0) return false;
+  const current = (lines[line] ?? "").trimStart();
+  if (current === "" || /^[}\])]/.test(current)) return false;
+
+  let balance = 0;
+  for (let i = line - 1; i >= 0; i--) {
+    const text = stripStringsAndComments(lines[i] ?? "");
+    if (i === line - 1 && text.trimEnd().endsWith("{")) return false;
+    balance += countChars(text, "(") + countChars(text, "[");
+    balance -= countChars(text, ")") + countChars(text, "]");
+    if (balance > 0) return true;
+    if (balance < 0) return false;
+    if (text.trim() === "") return false;
+  }
+  return false;
+}
+
+/** Compute continuation indent from the first unterminated previous line. */
+function continuationIndent(
+  lines: string[],
+  indents: Map<number, number>,
+  opts: FormatOptions,
+  line: number,
+): number {
+  for (let i = line - 1; i >= 0; i--) {
+    const text = stripStringsAndComments(lines[i] ?? "");
+    if (countChars(text, "(") + countChars(text, "[") > countChars(text, ")") + countChars(text, "]")) {
+      return (indents.get(i) ?? 0) + opts.tabSize * 2;
+    }
+  }
+  return indents.get(line) ?? 0;
+}
+
+function countChars(text: string, char: string): number {
+  let count = 0;
+  for (const c of text) {
+    if (c === char) count++;
+  }
+  return count;
+}
+
+function stripStringsAndComments(line: string): string {
+  const commentStart = line.indexOf("//");
+  const code = commentStart >= 0 ? line.slice(0, commentStart) : line;
+  return code.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`/g, "");
+}
+
 // ---------------------------------------------------------------------------
 // Indent computation
 // ---------------------------------------------------------------------------
@@ -605,7 +680,6 @@ function collapseBlankLines(lines: string[]): string[] {
  * an "else" token, so it should not be treated as a bare body.
  */
 function hasPrevUnnamedSibling(node: Node, text: string): boolean {
-  let prev = node.previousNamedSibling ? null : node.previousSibling;
   // Walk backwards past any named siblings to find the unnamed token before
   // this child. For "else if(y)", the inner if_statement's previous unnamed
   // sibling is "else".
@@ -616,6 +690,92 @@ function hasPrevUnnamedSibling(node: Node, text: string): boolean {
     break;
   }
   return false;
+}
+
+function parentType(node: Node): string | null {
+  const parent = (node as Node & { parent?: Node }).parent;
+  return parent?.type ?? null;
+}
+
+function isSwitchBodyBlock(node: Node): boolean {
+  return node.type === "block" && parentType(node) === "switch_statement";
+}
+
+function mergeIndentMaps(
+  target: { indents: Map<number, number>; baseIndents: Map<number, number> },
+  source: { indents: Map<number, number>; baseIndents: Map<number, number> },
+): void {
+  for (const [line, indent] of source.indents) {
+    target.indents.set(line, indent);
+  }
+  for (const [line, base] of source.baseIndents) {
+    target.baseIndents.set(line, base);
+  }
+}
+
+function computeSwitchBodyIndents(
+  node: Node,
+  opts: FormatOptions,
+  baseIndent: number,
+  source: string,
+): { indents: Map<number, number>; baseIndents: Map<number, number> } {
+  const result = { indents: new Map<number, number>(), baseIndents: new Map<number, number>() };
+  const labelIndent = baseIndent + opts.tabSize;
+  const bodyIndent = labelIndent + opts.tabSize;
+  let afterLabel = false;
+
+  for (const child of node.namedChildren) {
+    const isLabel = child.type === "case_clause" || child.type === "default_clause";
+    if (isLabel) {
+      mergeIndentMaps(result, computeCaseLabelIndents(child, opts, labelIndent, source));
+      afterLabel = true;
+      continue;
+    }
+
+    const previous = child.previousNamedSibling;
+    const continuesLabel = child.type === "block"
+      && previous !== null
+      && (previous.type === "case_clause" || previous.type === "default_clause")
+      && previous.startPosition.row === child.startPosition.row;
+    const childIndent = continuesLabel ? labelIndent : afterLabel ? bodyIndent : labelIndent;
+    mergeIndentMaps(result, computeLineIndents(child, opts, childIndent, source));
+    if (continuesLabel) {
+      result.indents.set(child.startPosition.row, labelIndent);
+      result.baseIndents.set(child.startPosition.row, labelIndent);
+    }
+    afterLabel = true;
+  }
+
+  const lines = source.split("\n");
+  for (let line = node.startPosition.row; line <= node.endPosition.row; line++) {
+    if (result.indents.has(line)) continue;
+    const trimmed = lines[line]?.trim() ?? "";
+    const structural = line === node.startPosition.row || line === node.endPosition.row || trimmed === "{" || trimmed === "}";
+    result.indents.set(line, structural ? baseIndent : bodyIndent);
+    result.baseIndents.set(line, baseIndent);
+  }
+
+  return result;
+}
+
+function computeCaseLabelIndents(
+  node: Node,
+  opts: FormatOptions,
+  labelIndent: number,
+  source: string,
+): { indents: Map<number, number>; baseIndents: Map<number, number> } {
+  const result = { indents: new Map<number, number>(), baseIndents: new Map<number, number>() };
+  result.indents.set(node.startPosition.row, labelIndent);
+  result.baseIndents.set(node.startPosition.row, labelIndent);
+
+  for (const child of node.namedChildren) {
+    if (child.type !== "block") continue;
+    mergeIndentMaps(result, computeLineIndents(child, opts, labelIndent, source));
+    result.indents.set(node.startPosition.row, labelIndent);
+    result.baseIndents.set(node.startPosition.row, labelIndent);
+  }
+
+  return result;
 }
 
 /**
@@ -634,6 +794,10 @@ function computeLineIndents(
   const endLine = node.endPosition.row;
 
   if (INDENT_NODES.has(node.type)) {
+    if (isSwitchBodyBlock(node)) {
+      return computeSwitchBodyIndents(node, opts, baseIndent, source);
+    }
+
     // Single-line bodies don't increase indent
     const spansMultipleLines = node.startPosition.row !== node.endPosition.row;
     if (!spansMultipleLines) {
