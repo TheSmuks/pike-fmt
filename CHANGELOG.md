@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] — 2026-07-07
+
 ### Performance
 
 - **Formatting is now linear time.** Large files were formatted in quadratic time — a ~17k-line file took ~6.6s. The dominant cost was re-splitting the entire source into lines on every node visited during the recursive indent walk (86.8% of runtime by profile). The source is now split once and the line array threaded through the walk. The same file now formats in ~335ms (≈20× faster), and time scales linearly with input size. Output is byte-identical.
