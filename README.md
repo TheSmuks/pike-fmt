@@ -45,9 +45,15 @@ These conventions define the expected output:
 
 - **2-space indentation** (Pike stdlib convention)
 - **Opening brace on same line** as declaration (`class Foo {`, `void create() {`)
-- **No space before `(`** in function declarations/calls
-- **Space after `//` and `//!`** in comments
+- **`else` joined** to the preceding closing brace (`} else {`)
+- **Trailing whitespace removed** and internal runs of whitespace collapsed
+- **Blank lines collapsed** (runs of 3+ reduced to 1)
 - Pike literals `({`, `([`, `(<` are treated as opening brackets
+
+With `--operator-spacing` (experimental) additionally:
+
+- **Spaces around binary/assignment operators** (`int x=1+2;` → `int x = 1 + 2;`)
+- **No space before `(`** in function calls (`f (x)` → `f(x)`)
 
 ## Development
 

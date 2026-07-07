@@ -8,6 +8,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`--operator-spacing` CLI flag.** The flag was parsed but discarded (`toFormatOpts` hardcoded `operatorSpacing: false`), so operator spacing never ran from the CLI. It is now wired through.
+- **Operator spacing preserved indentation.** Operator-bearing lines were rebuilt from tree-sitter tokens, which carry no leading whitespace, so their indentation was lost. The line's indent is now captured and reapplied.
+- **Inline case bodies.** `case 1: write("a"); break;` no longer over-indents the label — a case/default label leads its line and keeps its own indent even with inline statements following it.
+- **Inline `else` bodies.** `else c();` on one line no longer receives an extra indent level; the line is led by `else` and stays aligned with its `if`.
+- **Comment contents preserved.** Internal whitespace inside `//` and `/* */` comments is no longer collapsed. Previously `//  x` became `// x`, and comments containing quotes produced non-idempotent output.
+- **Block-comment alignment.** Continuation lines of `*`-styled block comments realign one space under the opening `/*` instead of being flattened to the base indent; other comment/string interiors are preserved verbatim.
+- **Multi-line string literals preserved.** String contents (whitespace, tabs) are no longer altered; continuation rows of multi-line strings are emitted verbatim.
+- **Multi-line `#define` macros.** The head line's alignment before a trailing `\` is preserved instead of being collapsed.
+- **Idempotency with tabs.** Runs of tabs (or mixed tabs/spaces) outside strings now collapse to a single space in one pass. Previously `"x"\t\t: y` became two spaces on the first pass and one on the second (non-idempotent).
+
+### Changed
+
+- **README conventions.** Corrected the "Formatting Conventions" section, which listed a "space after `//`" rule that was never implemented and a "no space before `(`" rule that only applies to calls under `--operator-spacing`.
+- **Removed dead code.** Dropped the unused `NO_SPACE_AFTER` constant.
+
+### Known limitations
+
+- **Deeply-nested brace-optional `if/else`.** A block-closing `}` immediately followed by an outer `if`'s `else if` (structurally different indent levels joined onto one line) can need a second format pass to reach a stable indent. Observed in 4 of 460 Pike stdlib files; no code is altered and the output converges after one reformat.
+
 ## [0.1.7] — 2026-06-05
 
 ### Fixed

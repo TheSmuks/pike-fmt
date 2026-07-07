@@ -260,6 +260,18 @@ describe("switch case", () => {
     const result = await formatSource(input);
     expect(result).toBe(`int main() {\n  switch (x) {\n    case 1:\n      if (a) {\n        y();\n      }\n      break;\n    default:\n      z();\n  }\n}\n`);
   });
+
+  test("keeps label indent when body is inline on the case line", async () => {
+    const input = `void f(int x) {\nswitch (x) {\ncase 1: write("a"); break;\ndefault: write("d"); break;\n}\n}\n`;
+    const result = await formatSource(input);
+    expect(result).toBe(`void f(int x) {\n  switch (x) {\n    case 1: write("a"); break;\n    default: write("d"); break;\n  }\n}\n`);
+  });
+
+  test("indents control flow nested inside a case body", async () => {
+    const input = `void f(int x) {\nswitch (x) {\ncase 2:\nif (x) write("b");\nelse write("c");\nbreak;\n}\n}\n`;
+    const result = await formatSource(input);
+    expect(result).toBe(`void f(int x) {\n  switch (x) {\n    case 2:\n      if (x) write("b");\n      else write("c");\n      break;\n  }\n}\n`);
+  });
 });
 
 describe("split control-flow lines", () => {
@@ -273,6 +285,31 @@ describe("split control-flow lines", () => {
     const input = `int main() {\nif (a) {\nx();\n}\nelse {\ny();\n}\n}\n`;
     const result = await formatSource(input);
     expect(result).toBe(`int main() {\n  if (a) {\n    x();\n  } else {\n    y();\n  }\n}\n`);
+  });
+
+  test("keeps inline else body at the else's indent", async () => {
+    const input = `void f(int x) {\nif (x) a();\nelse c();\n}\n`;
+    const result = await formatSource(input);
+    expect(result).toBe(`void f(int x) {\n  if (x) a();\n  else c();\n}\n`);
+  });
+
+  test("keeps else-if chains with inline final else aligned", async () => {
+    const input = `void f(int x) {\nif (x) a();\nelse if (y) b();\nelse c();\n}\n`;
+    const result = await formatSource(input);
+    expect(result).toBe(`void f(int x) {\n  if (x) a();\n  else if (y) b();\n  else c();\n}\n`);
+  });
+});
+
+describe("operator spacing", () => {
+  test("adds spaces around binary operators", async () => {
+    const result = await formatSource(`int x=1+2;\n`, { operatorSpacing: true });
+    expect(result).toBe(`int x = 1 + 2;\n`);
+  });
+
+  test("preserves indentation on operator-bearing lines", async () => {
+    const input = `void f() {\nint y = 1+2;\nreturn y;\n}\n`;
+    const result = await formatSource(input, { operatorSpacing: true });
+    expect(result).toBe(`void f() {\n  int y = 1 + 2;\n  return y;\n}\n`);
   });
 });
 

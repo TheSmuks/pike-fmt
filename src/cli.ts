@@ -222,7 +222,7 @@ function toFormatOpts(opts: CliOpts): FormatOptions {
     tabSize: opts.tabSize,
     useTabs: opts.useTabs,
     insertFinalNewline: opts.insertFinalNewline,
-    operatorSpacing: false,
+    operatorSpacing: opts.operatorSpacing,
   };
 }
 

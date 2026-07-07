@@ -3327,14 +3327,6 @@ var NO_SPACE_BEFORE = new Set([
   ",",
   ";"
 ]);
-var NO_SPACE_AFTER = new Set([
-  "(",
-  "[",
-  "{",
-  ".",
-  ";",
-  ":"
-]);
 var COMPOUND_OPS = new Set([
   "->",
   "++",
@@ -3368,6 +3360,32 @@ function collectTokens(node) {
   }
   return tokens;
 }
+function collectCommentLayout(node, indents, source) {
+  const starAlign = new Map;
+  const verbatim = new Set;
+  const lines = source.split(`
+`);
+  const walk = (n) => {
+    if (n.childCount === 0) {
+      if (n.endPosition.row > n.startPosition.row) {
+        const starStyled = n.text.startsWith("/*") && (lines[n.startPosition.row + 1]?.trim().startsWith("*") ?? false);
+        const base = indents.get(n.startPosition.row) ?? 0;
+        for (let r = n.startPosition.row + 1;r <= n.endPosition.row; r++) {
+          if (starStyled && (lines[r]?.trim().startsWith("*") ?? false)) {
+            starAlign.set(r, base + 1);
+          } else {
+            verbatim.add(r);
+          }
+        }
+      }
+      return;
+    }
+    for (const child of n.children)
+      walk(child);
+  };
+  walk(node);
+  return { starAlign, verbatim };
+}
 function format(source, opts = {}, parser) {
   const options = { ...DEFAULT_OPTIONS, ...opts };
   if (!parser) {
@@ -3378,11 +3396,21 @@ function format(source, opts = {}, parser) {
     throw new Error("Parse failed: tree is null");
   }
   const { indents, baseIndents } = computeLineIndents(tree.rootNode, options, 0, source);
+  const { starAlign, verbatim } = collectCommentLayout(tree.rootNode, indents, source);
   const originalLines = source.split(`
 `);
   const formattedLines = [];
   for (let i2 = 0;i2 < originalLines.length; i2++) {
     const originalLine = originalLines[i2];
+    const starIndent = starAlign.get(i2);
+    if (starIndent !== undefined) {
+      formattedLines.push(" ".repeat(starIndent) + originalLine.trim());
+      continue;
+    }
+    if (verbatim.has(i2)) {
+      formattedLines.push(originalLine);
+      continue;
+    }
     const isBlank = originalLine.trim() === "";
     if (isBlank) {
       formattedLines.push("");
@@ -3403,7 +3431,8 @@ function format(source, opts = {}, parser) {
     }
     const newIndent = options.useTabs ? "\t".repeat(Math.round(indent / options.tabSize)) : " ".repeat(indent);
     const trimmedContent2 = content.trimEnd();
-    const normalizedContent = normalizeInternalWhitespace(trimmedContent2);
+    const isMacroHead = content.trimStart().startsWith("#") && trimmedContent2.endsWith("\\");
+    const normalizedContent = isMacroHead ? trimmedContent2 : normalizeInternalWhitespace(trimmedContent2);
     formattedLines.push(newIndent + normalizedContent);
   }
   const resultLines = joinElseLines(collapseBlankLines(formattedLines));
@@ -3436,10 +3465,12 @@ function normalizeOperatorSpacing(source, parser) {
       resultLines.push(line);
       continue;
     }
-    const tokens = tryGetTokens(line, parser);
+    const indent = line.match(/^\s*/)?.[0] ?? "";
+    const body2 = line.slice(indent.length);
+    const tokens = tryGetTokens(body2, parser);
     if (tokens) {
       const normalized = applyTokenSpacing(tokens);
-      resultLines.push(normalized);
+      resultLines.push(indent + normalized);
     } else {
       resultLines.push(line);
     }
@@ -3550,11 +3581,42 @@ function applyTokenSpacing(tokens) {
   out2 = out2.replace(/  +/g, " ");
   return out2.trim();
 }
-function normalizeInternalWhitespace(line) {
-  if (/["'`]|\/\//.test(line)) {
-    return normalizeTabsAndCollapseSpaces(line);
+function findCommentStart(line) {
+  let inString = false;
+  let stringChar = "";
+  for (let i2 = 0;i2 < line.length; i2++) {
+    const ch = line[i2];
+    if (inString) {
+      if (ch === "\\") {
+        i2++;
+        continue;
+      }
+      if (ch === stringChar)
+        inString = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") {
+      inString = true;
+      stringChar = ch;
+      continue;
+    }
+    if (ch === "/" && (line[i2 + 1] === "/" || line[i2 + 1] === "*"))
+      return i2;
   }
-  return line.replace(/\t/g, " ").replace(/  +/g, " ");
+  return -1;
+}
+function normalizeInternalWhitespace(line) {
+  const commentIdx = findCommentStart(line);
+  if (commentIdx >= 0) {
+    return normalizeCode(line.slice(0, commentIdx)) + line.slice(commentIdx);
+  }
+  return normalizeCode(line);
+}
+function normalizeCode(fragment) {
+  if (/["']/.test(fragment)) {
+    return normalizeTabsAndCollapseSpaces(fragment);
+  }
+  return fragment.replace(/\t/g, " ").replace(/  +/g, " ");
 }
 function normalizeTabsAndCollapseSpaces(line) {
   let result = "";
@@ -3577,25 +3639,13 @@ function normalizeTabsAndCollapseSpaces(line) {
       continue;
     }
     if (inString) {
-      if (ch === "\t") {
-        result += " ";
-      } else if (ch === " " && line[i2 + 1] === " ") {
-        result += ch;
-        while (i2 + 1 < line.length && line[i2 + 1] === " ")
-          i2++;
-      } else {
-        result += ch;
-      }
+      result += ch;
       i2++;
       continue;
     }
-    if (ch === "\t") {
+    if (ch === "\t" || ch === " ") {
       result += " ";
-      while (i2 + 1 < line.length && line[i2 + 1] === " ")
-        i2++;
-    } else if (ch === " ") {
-      result += ch;
-      while (i2 + 1 < line.length && line[i2 + 1] === " ")
+      while (i2 + 1 < line.length && (line[i2 + 1] === " " || line[i2 + 1] === "\t"))
         i2++;
     } else {
       result += ch;
@@ -3700,6 +3750,10 @@ function hasPrevUnnamedSibling(node, text) {
   }
   return false;
 }
+function isInlineElseBody(node) {
+  const sib = node.previousSibling;
+  return sib !== null && !sib.isNamed && sib.text === "else" && sib.startPosition.row === node.startPosition.row;
+}
 function parentType(node) {
   const parent = node.parent;
   return parent?.type ?? null;
@@ -3720,9 +3774,11 @@ function computeSwitchBodyIndents(node, opts, baseIndent, source) {
   const labelIndent = baseIndent + opts.tabSize;
   const bodyIndent = labelIndent + opts.tabSize;
   let afterLabel = false;
+  const labelRows = [];
   for (const child of node.namedChildren) {
     const isLabel = child.type === "case_clause" || child.type === "default_clause";
     if (isLabel) {
+      labelRows.push(child.startPosition.row);
       mergeIndentMaps(result, computeCaseLabelIndents(child, opts, labelIndent, source));
       afterLabel = true;
       continue;
@@ -3736,6 +3792,10 @@ function computeSwitchBodyIndents(node, opts, baseIndent, source) {
       result.baseIndents.set(child.startPosition.row, labelIndent);
     }
     afterLabel = true;
+  }
+  for (const row of labelRows) {
+    result.indents.set(row, labelIndent);
+    result.baseIndents.set(row, labelIndent);
   }
   const lines = source.split(`
 `);
@@ -3808,7 +3868,7 @@ function computeLineIndents(node, opts, baseIndent, source) {
     const bodyIndent = isControlFlow ? baseIndent + opts.tabSize : baseIndent;
     for (const child of node.namedChildren) {
       const isElseBranchControlFlow = isControlFlow && CONTROL_FLOW_WITH_BODY.has(child.type) && hasPrevUnnamedSibling(child, "else");
-      const isBareBody = isControlFlow && BARE_BODY_TYPES.has(child.type) && child.startPosition.row !== node.startPosition.row && !isElseBranchControlFlow;
+      const isBareBody = isControlFlow && BARE_BODY_TYPES.has(child.type) && child.startPosition.row !== node.startPosition.row && !isElseBranchControlFlow && !isInlineElseBody(child);
       const childIndent = isBareBody ? bodyIndent : baseIndent;
       const childResult = computeLineIndents(child, opts, childIndent, source);
       for (const [line, indent] of childResult.indents) {
@@ -3980,7 +4040,7 @@ function toFormatOpts(opts) {
     tabSize: opts.tabSize,
     useTabs: opts.useTabs,
     insertFinalNewline: opts.insertFinalNewline,
-    operatorSpacing: false
+    operatorSpacing: opts.operatorSpacing
   };
 }
 function formatSource(source, opts) {

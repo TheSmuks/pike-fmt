@@ -122,13 +122,6 @@ const NO_SPACE_BEFORE = new Set([
 ]);
 
 /**
- * No space after these tokens.
- */
-const NO_SPACE_AFTER = new Set([
-  "(", "[", "{", ".", ";", ":",
-]);
-
-/**
  * Compound operators that should be kept together with no spaces.
  */
 const COMPOUND_OPS = new Set([
@@ -188,6 +181,60 @@ export function collectTokens(node: Node): string[] {
   return tokens;
 }
 
+/**
+ * Layout for the continuation rows of multi-line leaf tokens (only leaf tokens
+ * span multiple lines: block comments and multi-line string/heredoc literals).
+ * Their continuation lines must not be re-indented like normal code — doing so
+ * destroys block-comment alignment and corrupts string contents.
+ *
+ * - `starAlign` maps a `*`-prefixed block-comment continuation row to its target
+ *   indent, so `/* … *\/` comments realign one space under the opening `/*`.
+ * - `verbatim` holds every other continuation row (string interiors, free-form
+ *   comment text), emitted exactly as written.
+ *
+ * The token's first row is excluded; it is positioned like normal code.
+ */
+interface CommentLayout {
+  starAlign: Map<number, number>;
+  verbatim: Set<number>;
+}
+
+function collectCommentLayout(
+  node: Node,
+  indents: Map<number, number>,
+  source: string,
+): CommentLayout {
+  const starAlign = new Map<number, number>();
+  const verbatim = new Set<number>();
+  const lines = source.split("\n");
+
+  const walk = (n: Node): void => {
+    if (n.childCount === 0) {
+      if (n.endPosition.row > n.startPosition.row) {
+        // A block comment is `*`-styled only when its first continuation line
+        // opens with `*` (`/*\n * text\n */`). Free-form comments — including
+        // ones whose closing `*/` happens to start with `*` — are left verbatim
+        // so their layout is preserved.
+        const starStyled =
+          n.text.startsWith("/*") &&
+          (lines[n.startPosition.row + 1]?.trim().startsWith("*") ?? false);
+        const base = indents.get(n.startPosition.row) ?? 0;
+        for (let r = n.startPosition.row + 1; r <= n.endPosition.row; r++) {
+          if (starStyled && (lines[r]?.trim().startsWith("*") ?? false)) {
+            starAlign.set(r, base + 1);
+          } else {
+            verbatim.add(r);
+          }
+        }
+      }
+      return;
+    }
+    for (const child of n.children) walk(child);
+  };
+  walk(node);
+  return { starAlign, verbatim };
+}
+
 // ---------------------------------------------------------------------------
 // Format
 // ---------------------------------------------------------------------------
@@ -216,12 +263,29 @@ export function format(
   // Build maps: line -> indent (in spaces) and line -> base indent
   const { indents, baseIndents } = computeLineIndents(tree.rootNode, options, 0, source);
 
+  // Layout for continuation rows of multi-line comments/strings.
+  const { starAlign, verbatim } = collectCommentLayout(tree.rootNode, indents, source);
+
   // Collect lines and apply indentation
   const originalLines = source.split("\n");
   const formattedLines: string[] = [];
 
   for (let i = 0; i < originalLines.length; i++) {
     const originalLine = originalLines[i];
+
+    // `*`-aligned block-comment continuation: realign under the opening `/*`.
+    const starIndent = starAlign.get(i);
+    if (starIndent !== undefined) {
+      formattedLines.push(" ".repeat(starIndent) + originalLine.trim());
+      continue;
+    }
+
+    // Other continuation rows of a multi-line comment/string literal are
+    // preserved verbatim — no indent, trim, or whitespace normalization.
+    if (verbatim.has(i)) {
+      formattedLines.push(originalLine);
+      continue;
+    }
 
     // Detect blank lines BEFORE applying indentation
     const isBlank = originalLine.trim() === "";
@@ -258,9 +322,15 @@ export function format(
 
     // Strip trailing whitespace from content
     const trimmedContent2 = content.trimEnd();
-    // Normalize internal whitespace: tabs → spaces, collapse multiple spaces
-    // Preserve string literals and comments
-    const normalizedContent = normalizeInternalWhitespace(trimmedContent2);
+    // Preprocessor directives that continue onto the next line (`#define … \`)
+    // keep their internal whitespace: the trailing alignment before `\` is
+    // intentional, and later macro rows are already preserved verbatim.
+    const isMacroHead = content.trimStart().startsWith("#") && trimmedContent2.endsWith("\\");
+    // Normalize internal whitespace: tabs → spaces, collapse multiple spaces.
+    // String literals and comments are preserved.
+    const normalizedContent = isMacroHead
+      ? trimmedContent2
+      : normalizeInternalWhitespace(trimmedContent2);
     formattedLines.push(newIndent + normalizedContent);
   }
 
@@ -313,11 +383,17 @@ function normalizeOperatorSpacing(source: string, parser: Parser): string {
       continue;
     }
 
+    // Tree-sitter tokens carry no leading whitespace, so capture the line's
+    // indentation and re-apply it to the normalized result. Without this the
+    // rebuilt line would lose its indent (operator-bearing lines only).
+    const indent = line.match(/^\s*/)?.[0] ?? "";
+    const body = line.slice(indent.length);
+
     // Try to parse the line and normalize spacing
-    const tokens = tryGetTokens(line, parser);
+    const tokens = tryGetTokens(body, parser);
     if (tokens) {
       const normalized = applyTokenSpacing(tokens);
-      resultLines.push(normalized);
+      resultLines.push(indent + normalized);
     } else {
       // If parsing fails, keep the line as-is
       resultLines.push(line);
@@ -484,20 +560,53 @@ function applyTokenSpacing(tokens: string[]): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Locate the start of a `//` or `/*` comment that is not inside a string or
+ * char literal. Returns -1 if the line has no such comment. Backtick is not a
+ * string delimiter in Pike (it prefixes operator identifiers such as `` `+ ``),
+ * so only `"` and `'` open literals here.
+ */
+function findCommentStart(line: string): number {
+  let inString = false;
+  let stringChar = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inString) {
+      if (ch === "\\") { i++; continue; }
+      if (ch === stringChar) inString = false;
+      continue;
+    }
+    if (ch === '"' || ch === "'") { inString = true; stringChar = ch; continue; }
+    if (ch === "/" && (line[i + 1] === "/" || line[i + 1] === "*")) return i;
+  }
+  return -1;
+}
+
+/**
  * Normalize internal whitespace in a line of code.
  * - Tabs become spaces
  * - Multiple consecutive spaces become single space
- * - Preserves content inside string literals and comments
+ * - Content inside string literals and comments is left untouched
  */
 function normalizeInternalWhitespace(line: string): string {
-  // If the line contains string literals or comments, be more careful
-  if (/["'`]|\/\//.test(line)) {
-    // Simple approach: replace tabs with spaces first, then collapse spaces
-    // being careful not to touch content inside strings
-    return normalizeTabsAndCollapseSpaces(line);
+  // Preserve comment bodies verbatim: collapsing whitespace inside a comment
+  // corrupts alignment (e.g. `//   x`) and is not idempotent when the comment
+  // contains quotes. Normalize only the code portion before the comment.
+  const commentIdx = findCommentStart(line);
+  if (commentIdx >= 0) {
+    return normalizeCode(line.slice(0, commentIdx)) + line.slice(commentIdx);
   }
-  // Simple case: just normalize whitespace
-  return line.replace(/\t/g, " ").replace(/  +/g, " ");
+  return normalizeCode(line);
+}
+
+/**
+ * Normalize whitespace in a fragment that contains code only (no line comment),
+ * preserving the contents of string/char literals.
+ */
+function normalizeCode(fragment: string): string {
+  if (/["']/.test(fragment)) {
+    return normalizeTabsAndCollapseSpaces(fragment);
+  }
+  return fragment.replace(/\t/g, " ").replace(/  +/g, " ");
 }
 
 /**
@@ -529,29 +638,19 @@ function normalizeTabsAndCollapseSpaces(line: string): string {
     }
 
     if (inString) {
-      // Inside string: preserve tabs, collapse other whitespace
-      if (ch === "\t") {
-        result += " ";
-      } else if (ch === " " && line[i + 1] === " ") {
-        // Collapse multiple spaces inside string
-        result += ch;
-        while (i + 1 < line.length && line[i + 1] === " ") i++;
-      } else {
-        result += ch;
-      }
+      // Inside a string/char literal: preserve contents exactly. Whitespace is
+      // significant and must not be collapsed or tab-converted.
+      result += ch;
       i++;
       continue;
     }
 
-    // Outside string: normalize whitespace
-    if (ch === "\t") {
+    // Outside string: collapse any run of whitespace (tabs and/or spaces) to a
+    // single space. Skipping only following spaces (not tabs) left `\t\t` as two
+    // spaces, which a second pass then collapsed — a non-idempotency.
+    if (ch === "\t" || ch === " ") {
       result += " ";
-      // Collapse following spaces
-      while (i + 1 < line.length && line[i + 1] === " ") i++;
-    } else if (ch === " ") {
-      // Collapse multiple spaces
-      result += ch;
-      while (i + 1 < line.length && line[i + 1] === " ") i++;
+      while (i + 1 < line.length && (line[i + 1] === " " || line[i + 1] === "\t")) i++;
     } else {
       result += ch;
     }
@@ -692,6 +791,23 @@ function hasPrevUnnamedSibling(node: Node, text: string): boolean {
   return false;
 }
 
+/**
+ * Detect a bare body that sits on the same line as its introducing `else`
+ * keyword (`else write("c");`). Such a line is led by `else` — which aligns
+ * with the `if` at base indent — so the body must not receive the extra
+ * bare-body indent. The own-line form (`else` then body on the next line) is
+ * unaffected because the body's start row differs from the `else` token's row.
+ */
+function isInlineElseBody(node: Node): boolean {
+  const sib = node.previousSibling;
+  return (
+    sib !== null &&
+    !sib.isNamed &&
+    sib.text === "else" &&
+    sib.startPosition.row === node.startPosition.row
+  );
+}
+
 function parentType(node: Node): string | null {
   const parent = (node as Node & { parent?: Node }).parent;
   return parent?.type ?? null;
@@ -723,10 +839,15 @@ function computeSwitchBodyIndents(
   const labelIndent = baseIndent + opts.tabSize;
   const bodyIndent = labelIndent + opts.tabSize;
   let afterLabel = false;
+  // Rows where a case/default label begins. The label is the leftmost token on
+  // its line, so its indent must win even when inline statements
+  // (`case 1: write(); break;`) sit on the same row and get processed later.
+  const labelRows: number[] = [];
 
   for (const child of node.namedChildren) {
     const isLabel = child.type === "case_clause" || child.type === "default_clause";
     if (isLabel) {
+      labelRows.push(child.startPosition.row);
       mergeIndentMaps(result, computeCaseLabelIndents(child, opts, labelIndent, source));
       afterLabel = true;
       continue;
@@ -744,6 +865,13 @@ function computeSwitchBodyIndents(
       result.baseIndents.set(child.startPosition.row, labelIndent);
     }
     afterLabel = true;
+  }
+
+  // Reassert label indentation: a label leads its line, so inline body children
+  // processed afterwards must not override the label row's indent.
+  for (const row of labelRows) {
+    result.indents.set(row, labelIndent);
+    result.baseIndents.set(row, labelIndent);
   }
 
   const lines = source.split("\n");
@@ -864,7 +992,8 @@ function computeLineIndents(
       const isBareBody = isControlFlow
         && BARE_BODY_TYPES.has(child.type)
         && child.startPosition.row !== node.startPosition.row
-        && !isElseBranchControlFlow;
+        && !isElseBranchControlFlow
+        && !isInlineElseBody(child);
 
       const childIndent = isBareBody ? bodyIndent : baseIndent;
       const childResult = computeLineIndents(child, opts, childIndent, source);
