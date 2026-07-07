@@ -19,15 +19,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Multi-line string literals preserved.** String contents (whitespace, tabs) are no longer altered; continuation rows of multi-line strings are emitted verbatim.
 - **Multi-line `#define` macros.** The head line's alignment before a trailing `\` is preserved instead of being collapsed.
 - **Idempotency with tabs.** Runs of tabs (or mixed tabs/spaces) outside strings now collapse to a single space in one pass. Previously `"x"\t\t: y` became two spaces on the first pass and one on the second (non-idempotent).
+- **Idempotency for nested brace-optional `if/else`.** `format` now runs its pass to a fixed point, so output is always idempotent (`format(format(x)) === format(x)`). A few deeply nested forms — where a block-closing `}` is merged onto an outer statement's `else` — previously needed a manual second pass to settle. Verified across 460 Pike stdlib files (0 non-idempotent, down from 25).
+- **Parse tree memory leak.** Each formatting pass now frees its web-tree-sitter parse tree (and the per-line trees used for operator spacing). Previously trees leaked WASM memory, which could exhaust the heap in the long-running LSP or when formatting many files in one process.
 
 ### Changed
 
 - **README conventions.** Corrected the "Formatting Conventions" section, which listed a "space after `//`" rule that was never implemented and a "no space before `(`" rule that only applies to calls under `--operator-spacing`.
 - **Removed dead code.** Dropped the unused `NO_SPACE_AFTER` constant.
 
-### Known limitations
+### Notes
 
-- **Deeply-nested brace-optional `if/else`.** A block-closing `}` immediately followed by an outer `if`'s `else if` (structurally different indent levels joined onto one line) can need a second format pass to reach a stable indent. Observed in 4 of 460 Pike stdlib files; no code is altered and the output converges after one reformat.
+- The fixed-point loop is a pragmatic guard around the current line-based indent model; the principled fix (as in rustfmt/gofmt/prettier) is to emit formatted text directly from the parse tree. Formatting the largest stdlib file (~3400 lines) takes ~0.8 s — acceptable interactively, but the underlying pass has a known `O(n²)` hot spot (`source.split("\n")` inside the indent recursion) worth addressing separately.
 
 ## [0.1.7] — 2026-06-05
 

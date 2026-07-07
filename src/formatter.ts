@@ -240,9 +240,22 @@ function collectCommentLayout(
 // ---------------------------------------------------------------------------
 
 /**
+ * Upper bound on extra formatting passes used to reach a stable (idempotent)
+ * result. A single pass settles almost everything; a few brace-optional nested
+ * if/else layouts — where a block-closing `}` is merged onto an outer
+ * statement's `else` — need one more pass. The bound caps the work and prevents
+ * a hang on any hypothetical input that never converges.
+ */
+const STABILIZE_MAX_PASSES = 4;
+
+/**
  * Format Pike source code using tree-sitter-pike.
  *
- * Phase 4 scope: indentation + whitespace + operator spacing normalization.
+ * Runs {@link formatOnce} repeatedly until the output stops changing, so the
+ * result is idempotent: `format(format(x)) === format(x)`. The underlying pass
+ * is a line-based indent model rather than an AST pretty-printer, so a handful
+ * of deeply nested brace-optional if/else forms only settle on a second pass;
+ * iterating to a fixed point hides that seam from callers.
  */
 export function format(
   source: string,
@@ -255,6 +268,24 @@ export function format(
     throw new Error(" Pike formatter requires an initialized tree-sitter parser");
   }
 
+  let result = formatOnce(source, options, parser);
+  for (let pass = 0; pass < STABILIZE_MAX_PASSES; pass++) {
+    const next = formatOnce(result, options, parser);
+    if (next === result) break;
+    result = next;
+  }
+  return result;
+}
+
+/**
+ * A single formatting pass: indentation + whitespace normalization, same-line
+ * `else` joining, and optional operator spacing.
+ */
+function formatOnce(
+  source: string,
+  options: FormatOptions,
+  parser: Parser,
+): string {
   const tree = parser.parse(source);
   if (!tree) {
     throw new Error("Parse failed: tree is null");
@@ -265,6 +296,11 @@ export function format(
 
   // Layout for continuation rows of multi-line comments/strings.
   const { starAlign, verbatim } = collectCommentLayout(tree.rootNode, indents, source);
+
+  // Free the parse tree now that the line maps are built. web-tree-sitter trees
+  // hold WASM memory that is not garbage-collected; leaking one per pass (and
+  // format() runs several) exhausts the heap over a long-lived process or batch.
+  tree.delete();
 
   // Collect lines and apply indentation
   const originalLines = source.split("\n");
@@ -408,12 +444,16 @@ function normalizeOperatorSpacing(source: string, parser: Parser): string {
  * Returns null if the line can't be parsed standalone.
  */
 function tryGetTokens(line: string, parser: Parser): string[] | null {
+  let tree;
   try {
-    const tree = parser.parse(line);
+    tree = parser.parse(line);
     if (!tree || tree.rootNode.hasError) return null;
     return collectTokens(tree.rootNode);
   } catch {
     return null;
+  } finally {
+    // Free the per-line parse tree (operator spacing parses every line).
+    tree?.delete();
   }
 }
 

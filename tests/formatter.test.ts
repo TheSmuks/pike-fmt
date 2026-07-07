@@ -298,6 +298,14 @@ describe("split control-flow lines", () => {
     const result = await formatSource(input);
     expect(result).toBe(`void f(int x) {\n  if (x) a();\n  else if (y) b();\n  else c();\n}\n`);
   });
+
+  test("is idempotent for brace-optional nested if/else with `} else if`", async () => {
+    // A `}` closing an inner else-block merged onto an outer if's `else if`:
+    // the format pass settles this on a second pass, so format() must stabilize.
+    await assertIdempotent(
+      `void f() {\nif (a)\nif (b)\nx();\nelse\n{\ny();\n}\nelse if (c) {\nz();\n}\n}\n`,
+    );
+  });
 });
 
 describe("operator spacing", () => {

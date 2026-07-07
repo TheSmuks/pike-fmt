@@ -3386,17 +3386,29 @@ function collectCommentLayout(node, indents, source) {
   walk(node);
   return { starAlign, verbatim };
 }
+var STABILIZE_MAX_PASSES = 4;
 function format(source, opts = {}, parser) {
   const options = { ...DEFAULT_OPTIONS, ...opts };
   if (!parser) {
     throw new Error(" Pike formatter requires an initialized tree-sitter parser");
   }
+  let result = formatOnce(source, options, parser);
+  for (let pass = 0;pass < STABILIZE_MAX_PASSES; pass++) {
+    const next = formatOnce(result, options, parser);
+    if (next === result)
+      break;
+    result = next;
+  }
+  return result;
+}
+function formatOnce(source, options, parser) {
   const tree = parser.parse(source);
   if (!tree) {
     throw new Error("Parse failed: tree is null");
   }
   const { indents, baseIndents } = computeLineIndents(tree.rootNode, options, 0, source);
   const { starAlign, verbatim } = collectCommentLayout(tree.rootNode, indents, source);
+  tree.delete();
   const originalLines = source.split(`
 `);
   const formattedLines = [];
@@ -3479,13 +3491,16 @@ function normalizeOperatorSpacing(source, parser) {
 `);
 }
 function tryGetTokens(line, parser) {
+  let tree;
   try {
-    const tree = parser.parse(line);
+    tree = parser.parse(line);
     if (!tree || tree.rootNode.hasError)
       return null;
     return collectTokens(tree.rootNode);
   } catch {
     return null;
+  } finally {
+    tree?.delete();
   }
 }
 function applyTokenSpacing(tokens) {
