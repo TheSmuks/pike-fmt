@@ -202,11 +202,10 @@ interface CommentLayout {
 function collectCommentLayout(
   node: Node,
   indents: Map<number, number>,
-  source: string,
+  lines: readonly string[],
 ): CommentLayout {
   const starAlign = new Map<number, number>();
   const verbatim = new Set<number>();
-  const lines = source.split("\n");
 
   const walk = (n: Node): void => {
     if (n.childCount === 0) {
@@ -268,11 +267,21 @@ export function format(
     throw new Error(" Pike formatter requires an initialized tree-sitter parser");
   }
 
-  let result = formatOnce(source, options, parser);
+  const first = formatOnce(source, options, parser);
+  let result = first.result;
+
+  // A single pass settles everything except layouts where an `else` was merged
+  // onto a preceding block's closing `}` — only that transform can shift the
+  // next pass's indentation. When no such merge happened, the first pass is
+  // already a fixed point, so the stabilization passes (each a full re-parse)
+  // are pure overhead and skipped. This roughly halves the cost on the common
+  // path where files contain no brace-optional if/else merges.
+  if (!first.elseJoined) return result;
+
   for (let pass = 0; pass < STABILIZE_MAX_PASSES; pass++) {
     const next = formatOnce(result, options, parser);
-    if (next === result) break;
-    result = next;
+    if (next.result === result) break;
+    result = next.result;
   }
   return result;
 }
@@ -285,25 +294,32 @@ function formatOnce(
   source: string,
   options: FormatOptions,
   parser: Parser,
-): string {
+): { result: string; elseJoined: boolean } {
   const tree = parser.parse(source);
   if (!tree) {
     throw new Error("Parse failed: tree is null");
   }
 
+  // Split the source into lines exactly once and thread the array through the
+  // recursive indent computation. Re-splitting inside the recursion (once per
+  // visited line) is O(n²) and dominated runtime on large files.
+  const sourceLines = source.split("\n");
+
   // Build maps: line -> indent (in spaces) and line -> base indent
-  const { indents, baseIndents } = computeLineIndents(tree.rootNode, options, 0, source);
+  const indents = new Map<number, number>();
+  const baseIndents = new Map<number, number>();
+  computeLineIndents(tree.rootNode, options, 0, sourceLines, { indents, baseIndents });
 
   // Layout for continuation rows of multi-line comments/strings.
-  const { starAlign, verbatim } = collectCommentLayout(tree.rootNode, indents, source);
+  const { starAlign, verbatim } = collectCommentLayout(tree.rootNode, indents, sourceLines);
 
   // Free the parse tree now that the line maps are built. web-tree-sitter trees
   // hold WASM memory that is not garbage-collected; leaking one per pass (and
   // format() runs several) exhausts the heap over a long-lived process or batch.
   tree.delete();
 
-  // Collect lines and apply indentation
-  const originalLines = source.split("\n");
+  // Collect lines and apply indentation (reuse the already-split array)
+  const originalLines = sourceLines;
   const formattedLines: string[] = [];
 
   for (let i = 0; i < originalLines.length; i++) {
@@ -371,7 +387,7 @@ function formatOnce(
   }
 
   // Normalize blank lines and same-line else placement after indentation.
-  const resultLines = joinElseLines(collapseBlankLines(formattedLines));
+  const { lines: resultLines, joined: elseJoined } = joinElseLines(collapseBlankLines(formattedLines));
 
   let result = resultLines.join("\n");
 
@@ -387,7 +403,7 @@ function formatOnce(
     result = normalizeOperatorSpacing(result, parser);
   }
 
-  return result;
+  return { result, elseJoined };
 }
 
 /**
@@ -740,10 +756,17 @@ function collapseBlankLines(lines: string[]): string[] {
   return result;
 }
 
-/** Join `else` back to a preceding closing block for consistent Pike style. */
-function joinElseLines(lines: string[]): string[] {
+/**
+ * Join `else` back to a preceding closing block for consistent Pike style.
+ * Returns the rewritten lines and whether any merge occurred. A merge is the
+ * sole transform in a pass that can perturb the next pass's indentation (a
+ * block-closing `}` moves onto an outer statement's `else`), so `joined` tells
+ * {@link format} whether a stabilization pass is actually needed.
+ */
+function joinElseLines(lines: string[]): { lines: string[]; joined: boolean } {
   const result: string[] = [];
   let line = 0;
+  let joined = false;
 
   while (line < lines.length) {
     const current = lines[line] ?? "";
@@ -751,13 +774,14 @@ function joinElseLines(lines: string[]): string[] {
     if (current.trim() === "}" && /^\s*else\b/.test(next)) {
       result.push(`${current} ${next.trimStart()}`);
       line += 2;
+      joined = true;
       continue;
     }
     result.push(current);
     line++;
   }
 
-  return result;
+  return { lines: result, joined };
 }
 
 /** Detect a line that continues an unmatched parenthesized/bracketed header. */
@@ -857,25 +881,24 @@ function isSwitchBodyBlock(node: Node): boolean {
   return node.type === "block" && parentType(node) === "switch_statement";
 }
 
-function mergeIndentMaps(
-  target: { indents: Map<number, number>; baseIndents: Map<number, number> },
-  source: { indents: Map<number, number>; baseIndents: Map<number, number> },
-): void {
-  for (const [line, indent] of source.indents) {
-    target.indents.set(line, indent);
-  }
-  for (const [line, base] of source.baseIndents) {
-    target.baseIndents.set(line, base);
-  }
+/**
+ * Accumulator threaded through the indent computation. Every node writes its
+ * lines directly into these shared maps rather than returning a fresh map that
+ * the parent copies upward — the copy-up pattern was O(lines × nesting depth)
+ * and dominated the formatter's own time on large files.
+ */
+interface IndentAcc {
+  indents: Map<number, number>;
+  baseIndents: Map<number, number>;
 }
 
 function computeSwitchBodyIndents(
   node: Node,
   opts: FormatOptions,
   baseIndent: number,
-  source: string,
-): { indents: Map<number, number>; baseIndents: Map<number, number> } {
-  const result = { indents: new Map<number, number>(), baseIndents: new Map<number, number>() };
+  lines: readonly string[],
+  acc: IndentAcc,
+): void {
   const labelIndent = baseIndent + opts.tabSize;
   const bodyIndent = labelIndent + opts.tabSize;
   let afterLabel = false;
@@ -888,7 +911,7 @@ function computeSwitchBodyIndents(
     const isLabel = child.type === "case_clause" || child.type === "default_clause";
     if (isLabel) {
       labelRows.push(child.startPosition.row);
-      mergeIndentMaps(result, computeCaseLabelIndents(child, opts, labelIndent, source));
+      computeCaseLabelIndents(child, opts, labelIndent, lines, acc);
       afterLabel = true;
       continue;
     }
@@ -899,10 +922,10 @@ function computeSwitchBodyIndents(
       && (previous.type === "case_clause" || previous.type === "default_clause")
       && previous.startPosition.row === child.startPosition.row;
     const childIndent = continuesLabel ? labelIndent : afterLabel ? bodyIndent : labelIndent;
-    mergeIndentMaps(result, computeLineIndents(child, opts, childIndent, source));
+    computeLineIndents(child, opts, childIndent, lines, acc);
     if (continuesLabel) {
-      result.indents.set(child.startPosition.row, labelIndent);
-      result.baseIndents.set(child.startPosition.row, labelIndent);
+      acc.indents.set(child.startPosition.row, labelIndent);
+      acc.baseIndents.set(child.startPosition.row, labelIndent);
     }
     afterLabel = true;
   }
@@ -910,60 +933,58 @@ function computeSwitchBodyIndents(
   // Reassert label indentation: a label leads its line, so inline body children
   // processed afterwards must not override the label row's indent.
   for (const row of labelRows) {
-    result.indents.set(row, labelIndent);
-    result.baseIndents.set(row, labelIndent);
+    acc.indents.set(row, labelIndent);
+    acc.baseIndents.set(row, labelIndent);
   }
 
-  const lines = source.split("\n");
   for (let line = node.startPosition.row; line <= node.endPosition.row; line++) {
-    if (result.indents.has(line)) continue;
+    if (acc.indents.has(line)) continue;
     const trimmed = lines[line]?.trim() ?? "";
     const structural = line === node.startPosition.row || line === node.endPosition.row || trimmed === "{" || trimmed === "}";
-    result.indents.set(line, structural ? baseIndent : bodyIndent);
-    result.baseIndents.set(line, baseIndent);
+    acc.indents.set(line, structural ? baseIndent : bodyIndent);
+    acc.baseIndents.set(line, baseIndent);
   }
-
-  return result;
 }
 
 function computeCaseLabelIndents(
   node: Node,
   opts: FormatOptions,
   labelIndent: number,
-  source: string,
-): { indents: Map<number, number>; baseIndents: Map<number, number> } {
-  const result = { indents: new Map<number, number>(), baseIndents: new Map<number, number>() };
-  result.indents.set(node.startPosition.row, labelIndent);
-  result.baseIndents.set(node.startPosition.row, labelIndent);
+  lines: readonly string[],
+  acc: IndentAcc,
+): void {
+  acc.indents.set(node.startPosition.row, labelIndent);
+  acc.baseIndents.set(node.startPosition.row, labelIndent);
 
   for (const child of node.namedChildren) {
     if (child.type !== "block") continue;
-    mergeIndentMaps(result, computeLineIndents(child, opts, labelIndent, source));
-    result.indents.set(node.startPosition.row, labelIndent);
-    result.baseIndents.set(node.startPosition.row, labelIndent);
+    computeLineIndents(child, opts, labelIndent, lines, acc);
+    acc.indents.set(node.startPosition.row, labelIndent);
+    acc.baseIndents.set(node.startPosition.row, labelIndent);
   }
-
-  return result;
 }
 
 /**
- * Compute indentation levels and base indentation for each line.
+ * Compute indentation levels and base indentation for each line, writing into
+ * the shared {@link IndentAcc}.
  */
 function computeLineIndents(
   node: Node,
   opts: FormatOptions,
   baseIndent: number,
-  source: string,
-): { indents: Map<number, number>; baseIndents: Map<number, number> } {
-  const indents = new Map<number, number>();
-  const baseIndents = new Map<number, number>();
+  lines: readonly string[],
+  acc: IndentAcc,
+): void {
+  const indents = acc.indents;
+  const baseIndents = acc.baseIndents;
 
   const startLine = node.startPosition.row;
   const endLine = node.endPosition.row;
 
   if (INDENT_NODES.has(node.type)) {
     if (isSwitchBodyBlock(node)) {
-      return computeSwitchBodyIndents(node, opts, baseIndent, source);
+      computeSwitchBodyIndents(node, opts, baseIndent, lines, acc);
+      return;
     }
 
     // Single-line bodies don't increase indent
@@ -973,7 +994,7 @@ function computeLineIndents(
         indents.set(line, baseIndent);
         baseIndents.set(line, baseIndent);
       }
-      return { indents, baseIndents };
+      return;
     }
 
     const newIndent = baseIndent + opts.tabSize;
@@ -985,20 +1006,14 @@ function computeLineIndents(
       // For enum_decl, skip non-INDENT_NODE children (structural parts like identifier, braces)
       // For other INDENT_NODEs (class_body, block, case_clause), process all named children
       if (isEnumDecl && !INDENT_NODES.has(child.type)) continue;
-      const childResult = computeLineIndents(child, opts, newIndent, source);
-      for (const [line, indent] of childResult.indents) {
-        indents.set(line, indent);
-      }
-      for (const [line, base] of childResult.baseIndents) {
-        baseIndents.set(line, base);
-      }
+      computeLineIndents(child, opts, newIndent, lines, acc);
     }
     for (let line = startLine; line <= endLine; line++) {
       if (!indents.has(line)) {
         // The last line of an INDENT_NODE is always a closing delimiter
         // at outer indent level.
         const isLastLine = line === endLine;
-        const sourceLine = source.split("\n")[line] ?? "";
+        const sourceLine = lines[line] ?? "";
         const trimmed = sourceLine.trim();
         const isStructural =
           isLastLine ||
@@ -1036,13 +1051,7 @@ function computeLineIndents(
         && !isInlineElseBody(child);
 
       const childIndent = isBareBody ? bodyIndent : baseIndent;
-      const childResult = computeLineIndents(child, opts, childIndent, source);
-      for (const [line, indent] of childResult.indents) {
-        indents.set(line, indent);
-      }
-      for (const [line, base] of childResult.baseIndents) {
-        baseIndents.set(line, base);
-      }
+      computeLineIndents(child, opts, childIndent, lines, acc);
     }
     for (let line = startLine; line <= endLine; line++) {
       if (!indents.has(line)) {
@@ -1051,8 +1060,6 @@ function computeLineIndents(
       }
     }
   }
-
-  return { indents, baseIndents };
 }
 
 // ---------------------------------------------------------------------------

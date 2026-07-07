@@ -3360,11 +3360,9 @@ function collectTokens(node) {
   }
   return tokens;
 }
-function collectCommentLayout(node, indents, source) {
+function collectCommentLayout(node, indents, lines) {
   const starAlign = new Map;
   const verbatim = new Set;
-  const lines = source.split(`
-`);
   const walk = (n) => {
     if (n.childCount === 0) {
       if (n.endPosition.row > n.startPosition.row) {
@@ -3392,12 +3390,15 @@ function format(source, opts = {}, parser) {
   if (!parser) {
     throw new Error(" Pike formatter requires an initialized tree-sitter parser");
   }
-  let result = formatOnce(source, options, parser);
+  const first = formatOnce(source, options, parser);
+  let result = first.result;
+  if (!first.elseJoined)
+    return result;
   for (let pass = 0;pass < STABILIZE_MAX_PASSES; pass++) {
     const next = formatOnce(result, options, parser);
-    if (next === result)
+    if (next.result === result)
       break;
-    result = next;
+    result = next.result;
   }
   return result;
 }
@@ -3406,11 +3407,14 @@ function formatOnce(source, options, parser) {
   if (!tree) {
     throw new Error("Parse failed: tree is null");
   }
-  const { indents, baseIndents } = computeLineIndents(tree.rootNode, options, 0, source);
-  const { starAlign, verbatim } = collectCommentLayout(tree.rootNode, indents, source);
-  tree.delete();
-  const originalLines = source.split(`
+  const sourceLines = source.split(`
 `);
+  const indents = new Map;
+  const baseIndents = new Map;
+  computeLineIndents(tree.rootNode, options, 0, sourceLines, { indents, baseIndents });
+  const { starAlign, verbatim } = collectCommentLayout(tree.rootNode, indents, sourceLines);
+  tree.delete();
+  const originalLines = sourceLines;
   const formattedLines = [];
   for (let i2 = 0;i2 < originalLines.length; i2++) {
     const originalLine = originalLines[i2];
@@ -3447,7 +3451,7 @@ function formatOnce(source, options, parser) {
     const normalizedContent = isMacroHead ? trimmedContent2 : normalizeInternalWhitespace(trimmedContent2);
     formattedLines.push(newIndent + normalizedContent);
   }
-  const resultLines = joinElseLines(collapseBlankLines(formattedLines));
+  const { lines: resultLines, joined: elseJoined } = joinElseLines(collapseBlankLines(formattedLines));
   let result = resultLines.join(`
 `);
   if (options.insertFinalNewline && !result.endsWith(`
@@ -3461,7 +3465,7 @@ function formatOnce(source, options, parser) {
   if (options.operatorSpacing) {
     result = normalizeOperatorSpacing(result, parser);
   }
-  return result;
+  return { result, elseJoined };
 }
 function normalizeOperatorSpacing(source, parser) {
   const lines = source.split(`
@@ -3695,18 +3699,20 @@ function collapseBlankLines(lines) {
 function joinElseLines(lines) {
   const result = [];
   let line = 0;
+  let joined = false;
   while (line < lines.length) {
     const current = lines[line] ?? "";
     const next = lines[line + 1] ?? "";
     if (current.trim() === "}" && /^\s*else\b/.test(next)) {
       result.push(`${current} ${next.trimStart()}`);
       line += 2;
+      joined = true;
       continue;
     }
     result.push(current);
     line++;
   }
-  return result;
+  return { lines: result, joined };
 }
 function isContinuationLine(lines, line) {
   if (line === 0)
@@ -3776,16 +3782,7 @@ function parentType(node) {
 function isSwitchBodyBlock(node) {
   return node.type === "block" && parentType(node) === "switch_statement";
 }
-function mergeIndentMaps(target, source) {
-  for (const [line, indent] of source.indents) {
-    target.indents.set(line, indent);
-  }
-  for (const [line, base] of source.baseIndents) {
-    target.baseIndents.set(line, base);
-  }
-}
-function computeSwitchBodyIndents(node, opts, baseIndent, source) {
-  const result = { indents: new Map, baseIndents: new Map };
+function computeSwitchBodyIndents(node, opts, baseIndent, lines, acc) {
   const labelIndent = baseIndent + opts.tabSize;
   const bodyIndent = labelIndent + opts.tabSize;
   let afterLabel = false;
@@ -3794,57 +3791,53 @@ function computeSwitchBodyIndents(node, opts, baseIndent, source) {
     const isLabel = child.type === "case_clause" || child.type === "default_clause";
     if (isLabel) {
       labelRows.push(child.startPosition.row);
-      mergeIndentMaps(result, computeCaseLabelIndents(child, opts, labelIndent, source));
+      computeCaseLabelIndents(child, opts, labelIndent, lines, acc);
       afterLabel = true;
       continue;
     }
     const previous = child.previousNamedSibling;
     const continuesLabel = child.type === "block" && previous !== null && (previous.type === "case_clause" || previous.type === "default_clause") && previous.startPosition.row === child.startPosition.row;
     const childIndent = continuesLabel ? labelIndent : afterLabel ? bodyIndent : labelIndent;
-    mergeIndentMaps(result, computeLineIndents(child, opts, childIndent, source));
+    computeLineIndents(child, opts, childIndent, lines, acc);
     if (continuesLabel) {
-      result.indents.set(child.startPosition.row, labelIndent);
-      result.baseIndents.set(child.startPosition.row, labelIndent);
+      acc.indents.set(child.startPosition.row, labelIndent);
+      acc.baseIndents.set(child.startPosition.row, labelIndent);
     }
     afterLabel = true;
   }
   for (const row of labelRows) {
-    result.indents.set(row, labelIndent);
-    result.baseIndents.set(row, labelIndent);
+    acc.indents.set(row, labelIndent);
+    acc.baseIndents.set(row, labelIndent);
   }
-  const lines = source.split(`
-`);
   for (let line = node.startPosition.row;line <= node.endPosition.row; line++) {
-    if (result.indents.has(line))
+    if (acc.indents.has(line))
       continue;
     const trimmed = lines[line]?.trim() ?? "";
     const structural = line === node.startPosition.row || line === node.endPosition.row || trimmed === "{" || trimmed === "}";
-    result.indents.set(line, structural ? baseIndent : bodyIndent);
-    result.baseIndents.set(line, baseIndent);
+    acc.indents.set(line, structural ? baseIndent : bodyIndent);
+    acc.baseIndents.set(line, baseIndent);
   }
-  return result;
 }
-function computeCaseLabelIndents(node, opts, labelIndent, source) {
-  const result = { indents: new Map, baseIndents: new Map };
-  result.indents.set(node.startPosition.row, labelIndent);
-  result.baseIndents.set(node.startPosition.row, labelIndent);
+function computeCaseLabelIndents(node, opts, labelIndent, lines, acc) {
+  acc.indents.set(node.startPosition.row, labelIndent);
+  acc.baseIndents.set(node.startPosition.row, labelIndent);
   for (const child of node.namedChildren) {
     if (child.type !== "block")
       continue;
-    mergeIndentMaps(result, computeLineIndents(child, opts, labelIndent, source));
-    result.indents.set(node.startPosition.row, labelIndent);
-    result.baseIndents.set(node.startPosition.row, labelIndent);
+    computeLineIndents(child, opts, labelIndent, lines, acc);
+    acc.indents.set(node.startPosition.row, labelIndent);
+    acc.baseIndents.set(node.startPosition.row, labelIndent);
   }
-  return result;
 }
-function computeLineIndents(node, opts, baseIndent, source) {
-  const indents = new Map;
-  const baseIndents = new Map;
+function computeLineIndents(node, opts, baseIndent, lines, acc) {
+  const indents = acc.indents;
+  const baseIndents = acc.baseIndents;
   const startLine = node.startPosition.row;
   const endLine = node.endPosition.row;
   if (INDENT_NODES.has(node.type)) {
     if (isSwitchBodyBlock(node)) {
-      return computeSwitchBodyIndents(node, opts, baseIndent, source);
+      computeSwitchBodyIndents(node, opts, baseIndent, lines, acc);
+      return;
     }
     const spansMultipleLines = node.startPosition.row !== node.endPosition.row;
     if (!spansMultipleLines) {
@@ -3852,26 +3845,19 @@ function computeLineIndents(node, opts, baseIndent, source) {
         indents.set(line, baseIndent);
         baseIndents.set(line, baseIndent);
       }
-      return { indents, baseIndents };
+      return;
     }
     const newIndent = baseIndent + opts.tabSize;
     const isEnumDecl = node.type === "enum_decl";
     for (const child of node.namedChildren) {
       if (isEnumDecl && !INDENT_NODES.has(child.type))
         continue;
-      const childResult = computeLineIndents(child, opts, newIndent, source);
-      for (const [line, indent] of childResult.indents) {
-        indents.set(line, indent);
-      }
-      for (const [line, base] of childResult.baseIndents) {
-        baseIndents.set(line, base);
-      }
+      computeLineIndents(child, opts, newIndent, lines, acc);
     }
     for (let line = startLine;line <= endLine; line++) {
       if (!indents.has(line)) {
         const isLastLine = line === endLine;
-        const sourceLine = source.split(`
-`)[line] ?? "";
+        const sourceLine = lines[line] ?? "";
         const trimmed = sourceLine.trim();
         const isStructural = isLastLine || trimmed === "{" || /^(class|enum|void|int|string|float|mapping|array|multiset|object|mixed|function|program)\b/.test(trimmed);
         indents.set(line, isStructural ? baseIndent : newIndent);
@@ -3885,13 +3871,7 @@ function computeLineIndents(node, opts, baseIndent, source) {
       const isElseBranchControlFlow = isControlFlow && CONTROL_FLOW_WITH_BODY.has(child.type) && hasPrevUnnamedSibling(child, "else");
       const isBareBody = isControlFlow && BARE_BODY_TYPES.has(child.type) && child.startPosition.row !== node.startPosition.row && !isElseBranchControlFlow && !isInlineElseBody(child);
       const childIndent = isBareBody ? bodyIndent : baseIndent;
-      const childResult = computeLineIndents(child, opts, childIndent, source);
-      for (const [line, indent] of childResult.indents) {
-        indents.set(line, indent);
-      }
-      for (const [line, base] of childResult.baseIndents) {
-        baseIndents.set(line, base);
-      }
+      computeLineIndents(child, opts, childIndent, lines, acc);
     }
     for (let line = startLine;line <= endLine; line++) {
       if (!indents.has(line)) {
@@ -3900,7 +3880,6 @@ function computeLineIndents(node, opts, baseIndent, source) {
       }
     }
   }
-  return { indents, baseIndents };
 }
 
 // src/cli.ts
