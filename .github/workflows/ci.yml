@@ -57,5 +57,10 @@ jobs:
       - name: Type check
         run: bun run typecheck
 
+      # Required by tests/cli-packaging.test.ts, which exercises the built
+      # artifact — the packaging defects it pins are invisible in source.
+      - name: Build
+        run: bun run build
+
       - name: Run tests
         run: bun test

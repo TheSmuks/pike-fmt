@@ -25,8 +25,19 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { Parser } from "web-tree-sitter";
 import { format, FormatOptions, DEFAULT_OPTIONS } from "./formatter";
+
+/**
+ * Directory of the running script, resolved at runtime.
+ *
+ * Not `__dirname`: the bundler (`bun build --target node`) substitutes that
+ * for a string literal of the *build machine's* source directory, which does
+ * not exist on any machine that installs the package. `import.meta.url`
+ * survives bundling and reflects where the script actually lives.
+ */
+const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 
 // ---------------------------------------------------------------------------
 // CLI argument parsing
@@ -146,10 +157,10 @@ Supported file extensions: .pike, .lpc, .pmod
 
 function getVersion(): string {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, "../package.json"), "utf8"));
+    const pkg = JSON.parse(fs.readFileSync(path.join(scriptDir, "../package.json"), "utf8"));
     return pkg.version;
   } catch {
-    return "0.7.0";
+    return "unknown";
   }
 }
 
@@ -180,9 +191,9 @@ async function initParser(wasmPathOverride?: string): Promise<void> {
   // 3. Search paths
   if (!wasmPath) {
     const searchPaths = [
-      path.join(__dirname, "..", "tree-sitter-pike.wasm"),
-      path.join(__dirname, "tree-sitter-pike.wasm"),
-      path.join(__dirname, "..", "..", "tree-sitter-pike.wasm"),
+      path.join(scriptDir, "tree-sitter-pike.wasm"),
+      path.join(scriptDir, "..", "tree-sitter-pike.wasm"),
+      path.join(scriptDir, "..", "..", "tree-sitter-pike.wasm"),
       path.join(process.cwd(), "tree-sitter-pike.wasm"),
     ];
 

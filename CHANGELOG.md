@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] — 2026-07-16
+
+### Fixed
+
+- **The installed CLI could never find `tree-sitter-pike.wasm`.** `bun build --target node` replaces `__dirname` with a string literal of the *build machine's* source directory, so the bundled `dist/cli.js` searched `/home/runner/work/pike-fmt/pike-fmt/src/...` — a path that exists only on the CI runner. Every asset lookup missed, leaving `--wasm-path`, `PIKE_FMT_WASM`, or a wasm file in the current directory as the only ways to start the CLI. Asset paths are now resolved at runtime from `import.meta.url`, which survives bundling.
+- **`web-tree-sitter.wasm` was missing from the published package.** The web-tree-sitter runtime loads it at startup from alongside `dist/cli.js`, but `bun build` inlines only the runtime's JS — it never copied the `.wasm` into `dist/`, so the file did not exist to be packaged and the CLI aborted with `failed to asynchronously prepare wasm`. The build now copies it in (`scripts/copy-wasm.mjs`), resolving the source through `require.resolve("web-tree-sitter")` so it holds wherever the package is installed.
+- **`--help` and `--version` reported a fabricated version.** Reading `package.json` failed for the same `__dirname` reason and silently fell back to a hardcoded `"0.7.0"` — so a 0.1.9 install claimed to be 0.7.0. The real version is now reported, and an unreadable `package.json` yields `"unknown"` rather than a plausible lie.
+
+### Added
+
+- `tests/cli-packaging.test.ts` — exercises the built CLI from an unrelated working directory with no wasm flag or environment variable, which is how an installed package is actually used. CI now builds before running tests so these checks are not skipped (it previously never ran `bun run build`, which is why defects in the built artifact were invisible to it).
+
+### Changed
+
+- **The published file list is now explicit.** `package.json` gained a `files` allowlist (`dist`, `src`), so the tarball contains the CLI, its two wasm assets, and the library sources that consumers import — instead of also shipping tests, docs, and config. `src/` is retained deliberately: pike-language-server imports `pike-fmt/src/formatter` directly.
+
 ## [0.1.9] — 2026-07-07
 
 ### Performance

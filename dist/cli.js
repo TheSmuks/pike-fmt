@@ -3251,6 +3251,7 @@ ${JSON.stringify(symbolNames, null, 2)}`);
 init_web_tree_sitter();
 import * as fs2 from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 // src/formatter.ts
 var DEFAULT_OPTIONS = {
@@ -3883,7 +3884,7 @@ function computeLineIndents(node, opts, baseIndent, lines, acc) {
 }
 
 // src/cli.ts
-var __dirname = "/tank/projects/pike-fmt/src";
+var scriptDir = path.dirname(fileURLToPath(import.meta.url));
 function parseArgs(argv) {
   const opts = {
     tabSize: DEFAULT_OPTIONS.tabSize,
@@ -3980,10 +3981,10 @@ Supported file extensions: .pike, .lpc, .pmod
 }
 function getVersion() {
   try {
-    const pkg = JSON.parse(fs2.readFileSync(path.join(__dirname, "../package.json"), "utf8"));
+    const pkg = JSON.parse(fs2.readFileSync(path.join(scriptDir, "../package.json"), "utf8"));
     return pkg.version;
   } catch {
-    return "0.7.0";
+    return "unknown";
   }
 }
 var parser;
@@ -4002,9 +4003,9 @@ async function initParser(wasmPathOverride) {
   }
   if (!wasmPath) {
     const searchPaths = [
-      path.join(__dirname, "..", "tree-sitter-pike.wasm"),
-      path.join(__dirname, "tree-sitter-pike.wasm"),
-      path.join(__dirname, "..", "..", "tree-sitter-pike.wasm"),
+      path.join(scriptDir, "tree-sitter-pike.wasm"),
+      path.join(scriptDir, "..", "tree-sitter-pike.wasm"),
+      path.join(scriptDir, "..", "..", "tree-sitter-pike.wasm"),
       path.join(process.cwd(), "tree-sitter-pike.wasm")
     ];
     for (const p of searchPaths) {

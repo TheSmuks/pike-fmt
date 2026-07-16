@@ -1,13 +1,17 @@
 {
   "name": "pike-fmt",
-  "version": "0.1.9",
+  "version": "0.1.10",
   "type": "module",
   "main": "dist/cli.js",
   "bin": {
     "pike-fmt": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
-    "build": "bun build src/cli.ts --outdir dist --target node",
+    "build": "bun build src/cli.ts --outdir dist --target node && node scripts/copy-wasm.mjs",
     "test": "bun test",
     "typecheck": "bun run tsc --noEmit"
   },

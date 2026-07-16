@@ -1,5 +1,13 @@
+# Dependencies
+node_modules/
+
 # tree-sitter-pike grammar (source) — not committed
 tree-sitter-pike.wasm
 
-# Bundler artifacts in dist/
+# Build artifacts in dist/ — copied in by scripts/copy-wasm.mjs, not authored.
+# Packaging is governed by .npmignore + the package.json "files" allowlist, not
+# by this file, so ignoring it here does not keep it out of the tarball.
 dist/web-tree-sitter.wasm
+
+# Local packing output
+*.tgz
